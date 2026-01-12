@@ -1,11 +1,12 @@
 import customtkinter as ctk
+import tkinter.font as tkFont
 
 class NotebookApp:
     def __init__(self):
         ctk.set_appearance_mode("light")
         
         self.root = ctk.CTk()
-        self.root.title("")
+        self.root.title("Notebook App")
         
         self.setup_sidebar_close_binding()
 
@@ -110,17 +111,22 @@ class NotebookApp:
 
         # Otherwise, click is outside sidebar → close it
         self.close_sidebar()
+        
     def is_mouse_over_widget(self, widget, event):
-        wx1 = widget.winfo_rootx()
-        wy1 = widget.winfo_rooty()
-        wx2 = wx1 + widget.winfo_width()
-        wy2 = wy1 + widget.winfo_height()
-        
-        # Convert event coordinates to screen coordinates
-        mouse_x = event.x_root
-        mouse_y = event.y_root
-        
-        return wx1 <= mouse_x <= wx2 and wy1 <= mouse_y <= wy2
+        """Check if mouse is over a widget using relative coordinates"""
+        try:
+            # Get widget position relative to its parent
+            widget_x = widget.winfo_x()
+            widget_y = widget.winfo_y()
+            widget_width = widget.winfo_width()
+            widget_height = widget.winfo_height()
+            
+            # Check if event coordinates are within widget bounds
+            return (widget_x <= event.x <= widget_x + widget_width and 
+                    widget_y <= event.y <= widget_y + widget_height)
+        except:
+            return False
+            
     def setup_textbox_creation(self):
         """Set up event bindings for creating text boxes"""
         # Create canvas for drawing selection box (on each page)
@@ -144,9 +150,12 @@ class NotebookApp:
             canvas.bind("<B1-Motion>", self.draw_selection_box)
             canvas.bind("<ButtonRelease-1>", self.finish_textbox_creation)
             canvas.bind("<Button-1>", self.remove_textbox_focus)
+            
     def remove_textbox_focus(self, event):
+        # Hide formatting toolbar for all textboxes
+        for tb_data in self.textboxes:
+            tb_data['formatting_frame'].place_forget()
         self.root.focus()  # Removes focus from any textbox
-
 
     def start_textbox_creation(self, event):
         """Start creating a text box on double-click"""
@@ -182,6 +191,7 @@ class NotebookApp:
 
         canvas = self.left_canvas if self.current_page == self.left_page else self.right_canvas
         canvas.coords(self.selection_rect, start_x, start_y, event.x, event.y)
+        
     def finish_textbox_creation(self, event):
         if not self.creating_textbox or not self.selection_start:
             return
@@ -217,7 +227,84 @@ class NotebookApp:
         )
         textbox.place(x=x, y=y)
         textbox.insert("1.0", "Click to edit...")
+        
+        # Create formatting toolbar frame
+        formatting_frame = ctk.CTkFrame(
+            parent,
+            fg_color="#f5e8c8",
+            width=120,
+            height=30,
+            corner_radius=3,
+            border_width=1,
+            border_color="#a08c6e"
+        )
+        formatting_frame.pack_propagate(False)
+        formatting_frame.place_forget()  # Hidden initially
+        
+        # Formatting buttons
+        bold_btn = ctk.CTkButton(
+            formatting_frame,
+            text="B",
+            width=30,
+            height=24,
+            fg_color="#e0d0b0",
+            hover_color="#d0c0a0",
+            text_color="#3d2c1e",
+            font=("Arial", 11, "bold"),
+            corner_radius=2,
+            command=lambda: self.toggle_bold(textbox)
+        )
+        bold_btn.pack(side="left", padx=(5, 2), pady=3)
+        
+        italic_btn = ctk.CTkButton(
+            formatting_frame,
+            text="I",
+            width=30,
+            height=24,
+            fg_color="#e0d0b0",
+            hover_color="#d0c0a0",
+            text_color="#3d2c1e",
+            font=("Arial", 11, "italic"),
+            corner_radius=2,
+            command=lambda: self.toggle_italic(textbox)
+        )
+        italic_btn.pack(side="left", padx=2, pady=3)
+        
+        # Font size dropdown
+        font_sizes = ["8", "10", "11", "12", "14", "16", "18", "20", "24"]
+        font_size_var = ctk.StringVar(value="11")
+        
+        font_size_menu = ctk.CTkOptionMenu(
+            formatting_frame,
+            values=font_sizes,
+            variable=font_size_var,
+            width=50,
+            height=24,
+            fg_color="#e0d0b0",
+            button_color="#d0c0a0",
+            button_hover_color="#c0b090",
+            text_color="#3d2c1e",
+            font=("Arial", 10),
+            corner_radius=2,
+            command=lambda size: self.change_font_size(textbox, size)
+        )
+        font_size_menu.pack(side="left", padx=(2, 5), pady=3)
+        
+        # Store formatting state
+        textbox.formatting_state = {
+            'bold': False,
+            'italic': False,
+            'font_size': 11,
+            'font_family': "Arial"
+        }
+        
+        # Store tags for text formatting
+        textbox.tag_configure("bold", font=("Arial", 11, "bold"))
+        textbox.tag_configure("italic", font=("Arial", 11, "italic"))
+        textbox.tag_configure("bolditalic", font=("Arial", 11, "bold italic"))
+        
         textbox.lift()
+        formatting_frame.lift()
 
         # Resize handle
         handle_size = 10
@@ -235,13 +322,25 @@ class NotebookApp:
             clear_placeholder(e)
             resize_handle.place(x=textbox.winfo_x()+textbox.winfo_width()-handle_size,
                                 y=textbox.winfo_y()+textbox.winfo_height()-handle_size)
+            # Show formatting toolbar above textbox
+            formatting_frame.place(x=textbox.winfo_x(), 
+                                  y=textbox.winfo_y()-35)
 
         def focus_out(e):
             textbox.configure(fg_color="transparent", border_width=0)
             resize_handle.place_forget()
+            # Hide formatting toolbar
+            formatting_frame.place_forget()
 
         textbox.bind("<FocusIn>", focus_in)
         textbox.bind("<FocusOut>", focus_out)
+        
+        # Also hide toolbar when clicking elsewhere
+        def hide_toolbar(e):
+            if not self.is_mouse_over_widget(textbox, e) and not self.is_mouse_over_widget(formatting_frame, e):
+                formatting_frame.place_forget()
+                
+        parent.bind("<Button-1>", hide_toolbar, add="+")
 
         # Resize logic
         def start_resize(event):
@@ -260,10 +359,18 @@ class NotebookApp:
             textbox.configure(width=new_width, height=new_height)
             resize_handle.place(x=textbox.winfo_x() + new_width - handle_size,
                                 y=textbox.winfo_y() + new_height - handle_size)
+            # Update toolbar position
+            if formatting_frame.winfo_ismapped():
+                formatting_frame.place(x=textbox.winfo_x(), 
+                                      y=textbox.winfo_y()-35)
+                
         textbox.lift()
+        formatting_frame.lift()
         resize_handle.lift()
         textbox.update_idletasks()
         resize_handle.update_idletasks()
+        formatting_frame.update_idletasks()
+        
         resize_handle.bind("<Button-1>", start_resize)
         resize_handle.bind("<B1-Motion>", do_resize)
 
@@ -288,10 +395,15 @@ class NotebookApp:
             textbox.place(x=new_x, y=new_y)
             resize_handle.place(x=new_x + textbox.winfo_width() - handle_size,
                                 y=new_y + textbox.winfo_height() - handle_size)
-            textbox.lift()           # <-- ensures it redraws on top
+            # Update toolbar position
+            if formatting_frame.winfo_ismapped():
+                formatting_frame.place(x=new_x, 
+                                      y=new_y-35)
+                
+            textbox.lift()
+            formatting_frame.lift()
             resize_handle.lift()
-            textbox.update_idletasks()
-            resize_handle.update_idletasks()
+            parent.update_idletasks()
 
         textbox.bind("<Button-1>", start_drag)
         textbox.bind("<B1-Motion>", do_drag)
@@ -304,13 +416,110 @@ class NotebookApp:
             'y': y,
             'width': width,
             'height': height,
-            'handle': resize_handle
+            'handle': resize_handle,
+            'formatting_frame': formatting_frame,
+            'formatting_state': textbox.formatting_state
         })
 
         self.creating_textbox = False
         self.selection_start = None
         self.current_page = None
 
+    def toggle_bold(self, textbox):
+        """Toggle bold formatting for selected text"""
+        try:
+            # Get current selection
+            sel_start = textbox.index("sel.first")
+            sel_end = textbox.index("sel.last")
+            
+            # Check if selection already has bold tag
+            tags = textbox.tag_names(sel_start)
+            
+            if "bold" in tags or "bolditalic" in tags:
+                # Remove bold
+                textbox.tag_remove("bold", sel_start, sel_end)
+                textbox.tag_remove("bolditalic", sel_start, sel_end)
+                
+                # If it was bolditalic, keep italic
+                if "bolditalic" in tags:
+                    textbox.tag_add("italic", sel_start, sel_end)
+            else:
+                # Add bold
+                if "italic" in tags:
+                    textbox.tag_remove("italic", sel_start, sel_end)
+                    textbox.tag_add("bolditalic", sel_start, sel_end)
+                else:
+                    textbox.tag_add("bold", sel_start, sel_end)
+                    
+        except tkinter.TclError:
+            # No text selected, do nothing or apply to entire textbox
+            pass
+
+    def toggle_italic(self, textbox):
+        """Toggle italic formatting for selected text"""
+        try:
+            # Get current selection
+            sel_start = textbox.index("sel.first")
+            sel_end = textbox.index("sel.last")
+            
+            # Check if selection already has italic tag
+            tags = textbox.tag_names(sel_start)
+            
+            if "italic" in tags or "bolditalic" in tags:
+                # Remove italic
+                textbox.tag_remove("italic", sel_start, sel_end)
+                textbox.tag_remove("bolditalic", sel_start, sel_end)
+                
+                # If it was bolditalic, keep bold
+                if "bolditalic" in tags:
+                    textbox.tag_add("bold", sel_start, sel_end)
+            else:
+                # Add italic
+                if "bold" in tags:
+                    textbox.tag_remove("bold", sel_start, sel_end)
+                    textbox.tag_add("bolditalic", sel_start, sel_end)
+                else:
+                    textbox.tag_add("italic", sel_start, sel_end)
+                    
+        except tkinter.TclError:
+            # No text selected, do nothing or apply to entire textbox
+            pass
+
+    def change_font_size(self, textbox, size):
+        """Change font size for selected text or entire textbox"""
+        try:
+            size = int(size)
+            # Get current selection
+            sel_start = textbox.index("sel.first")
+            sel_end = textbox.index("sel.last")
+            
+            # Get current tags to preserve bold/italic
+            tags = textbox.tag_names(sel_start)
+            
+            # Create new tag with updated font size
+            font_config = "Arial"
+            if "bold" in tags:
+                font_config += " bold"
+            elif "italic" in tags:
+                font_config += " italic"
+            elif "bolditalic" in tags:
+                font_config += " bold italic"
+                
+            # Create a unique tag name for this size combination
+            tag_name = f"size{size}_{font_config.replace(' ', '_')}"
+            
+            # Configure the tag if it doesn't exist
+            if tag_name not in textbox.tag_names():
+                textbox.tag_configure(tag_name, font=(font_config, size))
+            
+            # Apply the tag to selection
+            textbox.tag_add(tag_name, sel_start, sel_end)
+            
+        except tkinter.TclError:
+            # No text selected, apply to entire textbox
+            textbox.configure(font=("Arial", size))
+            # Update formatting state
+            textbox.formatting_state['font_size'] = size
 
     def clear_placeholder(self, textbox):
         if textbox.get("1.0", "end-1c") == "Click to edit...":
@@ -320,13 +529,6 @@ class NotebookApp:
         """Clear the selection rectangle from canvases"""
         self.left_canvas.delete("selection")
         self.right_canvas.delete("selection")
-
-    def focus_textbox(self, event, textbox):
-        """Focus on textbox when double-clicked"""
-        textbox.focus()
-        # Clear placeholder text if it's the default
-        if textbox.get("1.0", "end-1c") == "Double-click to edit...":
-            textbox.delete("1.0", "end")
 
     def create_top_bar(self):
         # Create top bar
@@ -465,10 +667,12 @@ class NotebookApp:
                 self.show_top_bar()
             return
 
-        # Ignore events if cursor is over any textbox or handle
-        for tb in self.textboxes:
-            if self.is_mouse_over_widget(tb['widget'], event) or self.is_mouse_over_widget(tb['handle'], event):
-                return  # Don't change top bar
+        # Check if cursor is over any formatting toolbar
+        for tb_data in self.textboxes:
+            formatting_frame = tb_data['formatting_frame']
+            if formatting_frame.winfo_ismapped():
+                if self.is_mouse_over_widget(formatting_frame, event):
+                    return  # Don't hide top bar if over toolbar
 
         # Original behavior
         if event.y < 30:
@@ -478,7 +682,6 @@ class NotebookApp:
             if self.top_bar_visible and event.y > 70:
                 self.hide_top_bar()
 
-    
     def show_top_bar(self):
         self.top_bar.place(x=0, y=0, relwidth=1.0)
         self.top_bar_visible = True
@@ -502,12 +705,10 @@ class NotebookApp:
     
     def turn_page_right(self):
         """Simulate turning page to right (for future implementation)"""
-        # This will be used later for page turning animation
         pass
     
     def turn_page_left(self):
         """Simulate turning page to left (for future implementation)"""
-        # This will be used later for page turning animation
         pass
     
     def run(self):
