@@ -4,6 +4,7 @@ from tkinter import filedialog
 from tkinterdnd2 import DND_FILES, TkinterDnD
 from PIL import Image, ImageTk
 import os
+import pygame  # Add pygame for sound playback
 
 class FormattedTextWidget:
 	"""Custom widget that combines CTkFrame with tk.Text for formatting"""
@@ -282,7 +283,7 @@ class FormattedTextWidget:
 
 
 class ImageWidget:
-	"""Canvas-based image that supports transparency and floating over text"""
+	"""Canvas-based image that supports floating over text (no resize)"""
 	def __init__(self, canvas, x, y, image_path):
 		self.canvas = canvas
 		self.x = x
@@ -302,33 +303,11 @@ class ImageWidget:
 		self.tk_image = ImageTk.PhotoImage(self.original_image)
 		self.image_id = self.canvas.create_image(x, y, image=self.tk_image, anchor="nw")
 
-		# Create resize handle (larger and clickable)
-		handle_size = 15
-		self.handle_id = self.canvas.create_rectangle(
-			x + self.width - handle_size,
-			y + self.height - handle_size,
-			x + self.width,
-			y + self.height,
-			fill="#a08c6e",
-			outline="#5d4037",
-			tags="handle"
-		)
-
-		# Bring handle above image
-		self.canvas.tag_raise(self.handle_id, self.image_id)
-
-		# Bind both image and handle
-		for tag in [self.image_id, self.handle_id]:
-			self.canvas.tag_bind(tag, "<Button-1>", self.start_drag)
-			self.canvas.tag_bind(tag, "<B1-Motion>", self.do_drag)
-			self.canvas.tag_bind(tag, "<ButtonRelease-1>", self.stop_drag)
-
-			self.canvas.tag_bind(tag, "<Button-3>", self.delete)
-
-		# Bind handle resize separately
-		self.canvas.tag_bind(self.handle_id, "<Button-1>", self.start_resize)
-		self.canvas.tag_bind(self.handle_id, "<B1-Motion>", self.do_resize)
-		self.canvas.tag_bind(self.handle_id, "<ButtonRelease-1>", self.stop_resize)
+		# Bind image for dragging and deletion
+		self.canvas.tag_bind(self.image_id, "<Button-1>", self.start_drag)
+		self.canvas.tag_bind(self.image_id, "<B1-Motion>", self.do_drag)
+		self.canvas.tag_bind(self.image_id, "<ButtonRelease-1>", self.stop_drag)
+		self.canvas.tag_bind(self.image_id, "<Button-3>", self.delete)
 
 	def start_drag(self, event):
 		self.is_dragging = True
@@ -341,58 +320,250 @@ class ImageWidget:
 		dx = event.x - self.drag_start_x
 		dy = event.y - self.drag_start_y
 		self.canvas.move(self.image_id, dx, dy)
-		self.canvas.move(self.handle_id, dx, dy)
 		self.drag_start_x = event.x
 		self.drag_start_y = event.y
 
 	def stop_drag(self, event):
 		self.is_dragging = False
 
-	def start_resize(self, event):
-		if not self.canvas.coords(self.image_id):
-			self.is_resizing = False
-			return
-		self.is_resizing = True
-		self.resize_start_x = self.canvas.canvasx(event.x)
-		self.resize_start_y = self.canvas.canvasy(event.y)
-		self.start_width = self.width
-		self.start_height = self.height
-
-	def do_resize(self, event):
-		if not self.is_resizing: return
-
-		coords = self.canvas.coords(self.image_id)
-		if not coords:
-			return  # Nothing to resize (maybe deleted)
-		x, y = coords
-
-		dx = self.canvas.canvasx(event.x) - self.resize_start_x
-		scale = 1 + dx / max(self.start_width, 1)
-		new_width = max(50, int(self.start_width * scale))
-		new_height = max(50, int(self.start_height * scale))
-		self.width, self.height = new_width, new_height
-
-		resized_img = self.original_image.resize((new_width, new_height), Image.Resampling.LANCZOS)
-		self.tk_image = ImageTk.PhotoImage(resized_img)
-		self.canvas.itemconfig(self.image_id, image=self.tk_image)
-
-		self.canvas.coords(
-			self.handle_id,
-			x + new_width - 15,
-			y + new_height - 15,
-			x + new_width,
-			y + new_height
-		)
-
-	def stop_resize(self, event):
-		self.is_resizing = False
-		# Update original image to current size
-		self.original_image = self.original_image.resize((self.width, self.height), Image.Resampling.LANCZOS)
-
 	def delete(self, event=None):
 		self.canvas.delete(self.image_id)
-		self.canvas.delete(self.handle_id)
 
+
+class Page:
+	"""Represents a single page in the notebook"""
+	def __init__(self, parent, is_left_page, page_number):
+		self.parent = parent
+		self.is_left_page = is_left_page
+		self.page_number = page_number
+		
+		# Create page frame
+		self.frame = ctk.CTkFrame(
+			parent,
+			fg_color="#c1a273",
+			border_width=0,
+			corner_radius=0
+		)
+		
+		# Canvas for drawing selection boxes and images
+		self.canvas = tk.Canvas(
+			self.frame,
+			bg="#c1a273",
+			highlightthickness=0
+		)
+		self.canvas.place(relx=0, rely=0, relwidth=1, relheight=1)
+		
+		# Store widgets on this page
+		self.textboxes = []  # FormattedTextWidget objects
+		self.images = []     # ImageWidget objects
+		
+		# Page number label (bottom corner)
+		self.page_label = ctk.CTkLabel(
+			self.frame,
+			text=f"Page {page_number + 1}",
+			text_color="#5d4037",
+			font=("Arial", 9)
+		)
+		
+		# Place label based on page side
+		if is_left_page:
+			self.page_label.place(relx=0.02, rely=0.97, anchor="sw")
+		else:
+			self.page_label.place(relx=0.98, rely=0.97, anchor="se")
+	
+	def show(self):
+		"""Show this page"""
+		if self.is_left_page:
+			self.frame.place(relx=0, rely=0, relwidth=0.5, relheight=1.0)
+		else:
+			self.frame.place(relx=0.5, rely=0, relwidth=0.5, relheight=1.0)
+	
+	def hide(self):
+		"""Hide this page"""
+		self.frame.place_forget()
+	
+	def add_textbox(self, x, y, width, height):
+		"""Add a textbox to this page"""
+		textbox = FormattedTextWidget(self.frame, x, y, width, height, page_color="#c1a273")
+		self.textboxes.append(textbox)
+		return textbox
+	
+	def add_image(self, x, y, image_path):
+		"""Add an image to this page"""
+		image_widget = ImageWidget(self.canvas, x, y, image_path)
+		self.images.append(image_widget)
+		return image_widget
+	
+	def clear(self):
+		"""Clear all widgets from this page"""
+		for textbox in self.textboxes:
+			textbox.frame.destroy()
+			if hasattr(textbox, 'formatting_frame'):
+				textbox.formatting_frame.destroy()
+		self.textboxes.clear()
+		
+		for image in self.images:
+			image.canvas.delete(image.image_id)
+		self.images.clear()
+
+
+class PageCornerButton:
+	"""Custom button that looks like a folded page corner - invisible until hovered"""
+	def __init__(self, parent, is_previous=True, command=None, sound_player=None):
+		self.parent = parent
+		self.is_previous = is_previous  # True for previous, False for next
+		self.command = command
+		self.sound_player = sound_player  # Reference to sound player
+		
+		# Colors for the button
+		self.base_color = "#c1a273"  # Page color
+		self.shadow_color = "#8c704c"  # Darker shadow
+		self.highlight_color = "#d4b98c"  # Lighter highlight
+		self.hover_color = "#e0d0b0"  # Hover effect
+		
+		# Get parent's background color
+		try:
+			parent_bg = parent.cget("background")
+		except:
+			try:
+				parent_bg = parent.cget("bg")
+			except:
+				parent_bg = "#c1a273"  # Default page color
+		
+		# Create a canvas for the custom button shape with matching background
+		self.canvas = tk.Canvas(
+			parent,
+			bg=parent_bg,
+			highlightthickness=0,
+			width=60,
+			height=60
+		)
+		
+		# Bind click events
+		self.canvas.bind("<Button-1>", self.on_click)
+		self.canvas.bind("<Enter>", self.on_enter)
+		self.canvas.bind("<Leave>", self.on_leave)
+		
+		# Start with empty canvas (invisible)
+		self.canvas.delete("all")
+	
+	def draw_corner(self, hover=False):
+		"""Draw the folded page corner"""
+		self.canvas.delete("all")
+		
+		# If not hovering, leave canvas empty (invisible)
+		if not hover:
+			return
+		
+		# Base triangle (the visible corner)
+		if self.is_previous:
+			# Left corner (previous button) - triangle pointing right
+			points = [0, 0, 60, 0, 0, 60]
+		else:
+			# Right corner (next button) - triangle pointing left
+			points = [60, 0, 60, 60, 0, 60]
+		
+		# Draw shadow/highlight triangles for 3D effect
+		if self.is_previous:
+			# Previous button shadows/highlights
+			shadow_points1 = [0, 0, 60, 0, 60, 5, 5, 5, 5, 60, 0, 60]
+			shadow_points2 = [0, 0, 5, 5, 5, 60, 0, 60]
+			highlight_points = [0, 0, 0, 60, 55, 60, 55, 5, 60, 0]
+		else:
+			# Next button shadows/highlights
+			shadow_points1 = [60, 0, 60, 60, 0, 60, 55, 60, 55, 5, 60, 0]
+			shadow_points2 = [60, 0, 60, 60, 55, 55, 55, 5, 60, 0]
+			highlight_points = [60, 0, 60, 60, 5, 60, 5, 5, 0, 0]
+		
+		# Fill color based on hover state
+		fill_color = self.hover_color
+		
+		# Draw the main triangle
+		self.canvas.create_polygon(points, fill=fill_color, outline="", tags="corner")
+		
+		# Draw shadow triangles for 3D effect
+		self.canvas.create_polygon(shadow_points1, fill=self.shadow_color, outline="", tags="shadow")
+		self.canvas.create_polygon(shadow_points2, fill=self.shadow_color, outline="", tags="shadow")
+		
+		# Draw highlight triangle
+		self.canvas.create_polygon(highlight_points, fill=self.highlight_color, outline="", tags="highlight")
+		
+		# Add fold line
+		if self.is_previous:
+			# Diagonal line for previous button
+			self.canvas.create_line(0, 0, 60, 60, fill=self.shadow_color, width=1, tags="fold")
+		else:
+			# Diagonal line for next button
+			self.canvas.create_line(60, 0, 0, 60, fill=self.shadow_color, width=1, tags="fold")
+	
+	def on_click(self, event):
+		"""Handle click event - play sound and execute command"""
+		if self.sound_player:
+			self.sound_player.play_flip_sound()
+		if self.command:
+			self.command()
+	
+	def on_enter(self, event):
+		"""Handle mouse enter event"""
+		self.draw_corner(hover=True)
+	
+	def on_leave(self, event):
+		"""Handle mouse leave event"""
+		self.draw_corner(hover=False)
+	
+	def pack(self, **kwargs):
+		"""Pack the canvas widget"""
+		self.canvas.pack(**kwargs)
+	
+	def place(self, **kwargs):
+		"""Place the canvas widget"""
+		self.canvas.place(**kwargs)
+	
+	def configure(self, **kwargs):
+		"""Configure the canvas widget"""
+		self.canvas.configure(**kwargs)
+
+
+class SoundPlayer:
+	"""Handles playing sound effects"""
+	def __init__(self):
+		self.sound_loaded = False
+		self.flip_sound = None
+		
+		# Initialize pygame mixer
+		try:
+			pygame.mixer.init()
+			self.sound_loaded = True
+			print("Sound system initialized successfully")
+		except Exception as e:
+			print(f"Failed to initialize sound system: {e}")
+			self.sound_loaded = False
+	
+	def load_flip_sound(self, sound_path="flip.mp3"):
+		"""Load the flip sound from file"""
+		if not self.sound_loaded:
+			return False
+		
+		try:
+			# Check if file exists
+			if os.path.exists(sound_path):
+				self.flip_sound = pygame.mixer.Sound(sound_path)
+				print(f"Loaded sound: {sound_path}")
+				return True
+			else:
+				print(f"Sound file not found: {sound_path}")
+				return False
+		except Exception as e:
+			print(f"Failed to load sound: {e}")
+			return False
+	
+	def play_flip_sound(self):
+		"""Play the flip sound"""
+		if self.sound_loaded and self.flip_sound:
+			try:
+				pygame.mixer.Sound.play(self.flip_sound)
+			except Exception as e:
+				print(f"Failed to play sound: {e}")
 
 
 class NotebookApp:
@@ -401,7 +572,7 @@ class NotebookApp:
 		
 		self.root = TkinterDnD.Tk()
 		ctk.set_appearance_mode("light")
-		self.root.title("Notebook App with Images")
+		self.root.title("Notebook App with Pages")
 		
 		self.setup_sidebar_close_binding()
 
@@ -409,6 +580,10 @@ class NotebookApp:
 		self.root.maxsize(1920, 1080)
 		self.root.geometry("800x600")
 		self.root.configure(background="#c1a273")
+		
+		# Initialize sound player
+		self.sound_player = SoundPlayer()
+		self.sound_player.load_flip_sound("flip.mp3")
 		
 		# Hidden top bar
 		self.top_bar_visible = False
@@ -419,15 +594,11 @@ class NotebookApp:
 		self.creating_textbox = False
 		self.selection_start = None
 		self.selection_rect = None
-		self.current_page = None
 		
-		# Store all widgets
-		self.textboxes = []  # FormattedTextWidget objects
-		self.image_widgets = []  # ImageWidget objects
-		
-		# Track current page for widget placement
-		self.current_left_page_num = 0
-		self.current_right_page_num = 1
+		# Page system
+		self.pages = []  # List of Page objects
+		self.current_left_page_index = 0
+		self.current_right_page_index = 1
 		
 		# Main page container
 		self.page_container = ctk.CTkFrame(
@@ -436,34 +607,50 @@ class NotebookApp:
 			border_width=0,
 			corner_radius=0
 		)
-		self.page_container.pack(fill="both", expand=True, padx=0, pady=0)
+		self.page_container.pack(fill="both", expand=True, padx=0, pady=(0, 30))
 		
-		# Two pages - left and right of seam
-		self.left_page = ctk.CTkFrame(
-			self.page_container,
+		# Navigation frame on root window
+		self.nav_frame = ctk.CTkFrame(
+			self.root,
 			fg_color="#c1a273",
-			border_width=0,
-			corner_radius=0
+			height=30
 		)
-		self.left_page.place(relx=0, rely=0, relwidth=0.5, relheight=1.0)
+		self.nav_frame.place(relx=0, rely=1.0, relwidth=1.0, anchor="sw")
 		
-		self.right_page = ctk.CTkFrame(
-			self.page_container,
-			fg_color="#c1a273",
-			border_width=0,
-			corner_radius=0
-		)
-		self.right_page.place(relx=0.5, rely=0, relwidth=0.5, relheight=1.0)
+		# Create page corner buttons with sound player reference
+		self.prev_corner = PageCornerButton(self.root, is_previous=True, 
+										   command=self.previous_page, 
+										   sound_player=self.sound_player)
+		self.prev_corner.place(x=0, rely=1.0, anchor="sw")  
 		
-		# Black book seam in the middle (on top of pages)
-		self.seam = ctk.CTkFrame(
-			self.page_container,
-			fg_color="#000000",
-			width=3,
-			corner_radius=0
+		self.next_corner = PageCornerButton(self.root, is_previous=False, 
+										   command=self.next_page, 
+										   sound_player=self.sound_player)
+		self.next_corner.place(relx=1.0, rely=1.0, anchor="se")
+		
+		# Hide the old navigation buttons (keep them for compatibility but make them invisible)
+		self.prev_btn = ctk.CTkButton(
+			self.nav_frame,
+			text="",
+			fg_color="#f5f5f5",
+			hover_color="#f5f5f5",
+			width=0,
+			height=0
 		)
-		self.seam.pack_propagate(False)
-		self.seam.place(relx=0.5, rely=0, relheight=1.0, anchor="n")
+		self.prev_btn.pack(side="left", padx=(20, 10), pady=5)
+		
+		self.next_btn = ctk.CTkButton(
+			self.nav_frame,
+			text="",
+			fg_color="#f5f5f5",
+			hover_color="#f5f5f5",
+			width=0,
+			height=0
+		)
+		self.next_btn.pack(side="right", padx=(10, 20), pady=5)
+		
+		# Initialize pages
+		self.initialize_pages()
 		
 		# Bind text box creation events
 		self.setup_textbox_creation()
@@ -473,6 +660,12 @@ class NotebookApp:
 		
 		# Setup clipboard paste
 		self.setup_clipboard_paste()
+		
+		# Create seam (must be after pages are initialized)
+		self.create_seam()
+		
+		# Lower navigation frame so seam can be above it
+		self.nav_frame.lower()
 		
 		# Sidebar for page selector
 		self.sidebar = None
@@ -487,199 +680,114 @@ class NotebookApp:
 		# Create sidebar
 		self.create_sidebar()
 
+	def initialize_pages(self):
+		"""Create initial pages"""
+		# Create first two pages
+		left_page = Page(self.page_container, True, 0)
+		right_page = Page(self.page_container, False, 1)
+		
+		self.pages.append(left_page)
+		self.pages.append(right_page)
+		
+		# Show initial pages
+		left_page.show()
+		right_page.show()
+		
+		# Setup canvas events for these pages
+		self.setup_page_canvas_events(left_page)
+		self.setup_page_canvas_events(right_page)
+		
+		# Update navigation
+		self.update_navigation()
+
+
+	def create_seam(self):
+		"""Create a simple, efficient seam that stays within the app"""
+		# Create seam directly on the root window
+		self.seam = tk.Frame(
+			self.root,
+			bg="#000000",
+			width=3
+		)
+		
+		# Place it at the center of the window
+		self.seam.place(relx=0.5, rely=0, relheight=1.0, anchor="n")
+		
+		# Make sure it's above everything
+		self.seam.lift()
+		
+		# Force seam to be above pages
+		def raise_seam_above_pages():
+			self.seam.lift()
+			for page in self.pages:
+				if page.frame.winfo_exists():
+					self.seam.lift(page.frame)
+		
+		# Raise initially and after page changes
+		self.root.after(100, raise_seam_above_pages)
+		
+		# Also raise when pages change
+		original_next_page = self.next_page
+		original_previous_page = self.previous_page
+		
+		def wrapped_next_page():
+			original_next_page()
+			raise_seam_above_pages()
+		
+		def wrapped_previous_page():
+			original_previous_page()
+			raise_seam_above_pages()
+		
+		self.next_page = wrapped_next_page
+		self.previous_page = wrapped_previous_page
+		
 	def setup_image_drag_drop(self):
-		for page in [self.left_page, self.right_page]:
-			page.drop_target_register(DND_FILES)
-			page.dnd_bind("<<Drop>>", self.on_image_drop)
-			
+		"""Setup drag and drop for images"""
+		# We'll handle this in the page-specific canvases
+		pass
+	
 	def setup_clipboard_paste(self):
 		"""Setup Ctrl+V paste for images"""
 		self.root.bind('<Control-v>', self.paste_from_clipboard)
 		self.root.bind('<Control-V>', self.paste_from_clipboard)
-		
-	def on_image_drop(self, event):
-		files = self.root.tk.splitlist(event.data)
-
-		for file_path in files:
-			file_path = file_path.strip("{}")
-			if not file_path.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".bmp")):
-				continue
-
-			# Use the correct canvas
-			if event.widget == self.left_page:
-				canvas = self.left_canvas
-				page_x = self.left_page.winfo_rootx()
-				page_y = self.left_page.winfo_rooty()
-			else:
-				canvas = self.right_canvas
-				page_x = self.right_page.winfo_rootx()
-				page_y = self.right_page.winfo_rooty()
-
-			x = event.x_root - page_x
-			y = event.y_root - page_y
-
-			self.create_image_widget(canvas, x, y, file_path)
-
-			
+	
 	def paste_from_clipboard(self, event):
 		"""Handle Ctrl+V paste safely (text only, no image)"""
 		try:
 			# Try to get text from clipboard
 			text = self.root.clipboard_get()
-			# Optionally, insert text somewhere, e.g., current page or textbox
-			# For example: insert at top-left of left page
-			self.create_text_widget(self.left_page, 10, 10, text)
+			# Insert text at center of left page
+			self.create_text_widget(self.pages[self.current_left_page_index], 50, 50, text)
 			return "break"  # Prevent default paste
 		except tk.TclError:
 			# Nothing in clipboard, ignore
 			pass
-
-			
-	def create_image_widget(self, canvas, x, y, image_path):
-		image_widget = ImageWidget(canvas, x, y, image_path)
-		self.image_widgets.append(image_widget)
-			
-	def setup_sidebar_close_binding(self):
-		# Bind left-click anywhere on the root
-		self.root.bind("<Button-1>", self.check_click_outside_sidebar)
-
-	def check_click_outside_sidebar(self, event):
-		if not self.sidebar_visible:
-			return
-
-		# Ignore clicks inside sidebar
-		if self.sidebar is not None:
-			sx1 = self.sidebar.winfo_x()
-			sy1 = self.sidebar.winfo_y()
-			sx2 = sx1 + self.sidebar.winfo_width()
-			sy2 = sy1 + self.sidebar.winfo_height()
-			if sx1 <= event.x <= sx2 and sy1 <= event.y <= sy2:
-				return
-
-		# Ignore clicks inside top bar
-		if self.top_bar is not None and self.top_bar_visible:
-			tx1 = self.top_bar.winfo_x()
-			ty1 = self.top_bar.winfo_y()
-			tx2 = tx1 + self.top_bar.winfo_width()
-			ty2 = ty1 + self.top_bar.winfo_height()
-			if tx1 <= event.x <= tx2 and ty1 <= event.y <= ty2:
-				return
-
-		# Otherwise, click is outside sidebar → close it
-		self.close_sidebar()
-		
-	def is_mouse_over_widget(self, widget, event):
-		"""Check if mouse is over a widget using relative coordinates"""
-		try:
-			widget_x = widget.winfo_x()
-			widget_y = widget.winfo_y()
-			widget_width = widget.winfo_width()
-			widget_height = widget.winfo_height()
-			
-			return (widget_x <= event.x <= widget_x + widget_width and 
-					widget_y <= event.y <= widget_y + widget_height)
-		except:
-			return False
-			
+	
 	def setup_textbox_creation(self):
 		"""Set up event bindings for creating text boxes"""
-		# Create canvas for drawing selection box (on each page)
-		self.left_canvas = ctk.CTkCanvas(
-			self.left_page,
-			bg="#c1a273",
-			highlightthickness=0
-		)
-		self.left_canvas.place(relx=0, rely=0, relwidth=1, relheight=1)
-
-		self.right_canvas = ctk.CTkCanvas(
-			self.right_page,
-			bg="#c1a273",
-			highlightthickness=0
-		)
-		self.right_canvas.place(relx=0, rely=0, relwidth=1, relheight=1)
-
-		# Bind events to the canvases
-		for canvas in [self.left_canvas, self.right_canvas]:
-			canvas.bind("<Double-Button-1>", self.start_textbox_creation)
-			canvas.bind("<B1-Motion>", self.draw_selection_box)
-			canvas.bind("<ButtonRelease-1>", self.finish_textbox_creation)
-			canvas.bind("<Button-1>", self.remove_textbox_focus)
-			
-	def remove_textbox_focus(self, event):
-		# Hide formatting toolbar for all textboxes
-		for textbox in self.textboxes:
-			if hasattr(textbox, 'formatting_frame') and textbox.formatting_frame.winfo_ismapped():
-				textbox.formatting_frame.place_forget()
-			if hasattr(textbox, 'has_focus') and textbox.has_focus:
-				textbox.on_focus_out()
-		self.root.focus()
-
-		# Remove hover effects from images (skip if not defined)
-		for image_widget in self.image_widgets:
-			if hasattr(image_widget, "on_hover_out"):
-				image_widget.on_hover_out()
-
-	def start_textbox_creation(self, event):
-		"""Start creating a text box on double-click"""
-		self.creating_textbox = True
-		self.selection_start = (event.x, event.y)
-
-		# Determine which page the canvas belongs to
-		if event.widget == self.left_canvas:
-			self.current_page = self.left_page
-			canvas = self.left_canvas
-			page_color = "#c1a273"
-		else:
-			self.current_page = self.right_page
-			canvas = self.right_canvas
-			page_color = "#c1a273"
-
-		self.clear_selection_rect()
-
-		self.selection_rect = canvas.create_rectangle(
-			event.x, event.y, event.x, event.y,
-			outline="#000000",
-			dash=(4, 2),
-			width=2,
-			tags="selection"
-		)
-
-	def draw_selection_box(self, event):
-		"""Draw the selection box while dragging"""
-		if not self.creating_textbox or not self.selection_start:
-			return
-
-		start_x, start_y = self.selection_start
-
-		canvas = self.left_canvas if self.current_page == self.left_page else self.right_canvas
-		canvas.coords(self.selection_rect, start_x, start_y, event.x, event.y)
-		
-	def finish_textbox_creation(self, event):
-		if not self.creating_textbox or not self.selection_start:
-			return
-
-		start_x, start_y = self.selection_start
-		end_x, end_y = event.x, event.y
-
-		width = abs(end_x - start_x)
-		height = abs(end_y - start_y)
-
-		if width < 100: width = 200
-		if height < 60: height = 100
-
-		parent = self.current_page
-		canvas = self.left_canvas if parent == self.left_page else self.right_canvas
-
-		self.clear_selection_rect()
-
-		x = min(start_x, end_x)
-		y = min(start_y, end_y)
-
-		# Create custom text widget
-		text_widget = FormattedTextWidget(parent, x, y, width, height, page_color="#c1a273")
+		# We'll bind to the current page canvases dynamically
+		pass
+	
+	def get_current_left_page(self):
+		"""Get the current left page object"""
+		if self.current_left_page_index < len(self.pages):
+			return self.pages[self.current_left_page_index]
+		return None
+	
+	def get_current_right_page(self):
+		"""Get the current right page object"""
+		if self.current_right_page_index < len(self.pages):
+			return self.pages[self.current_right_page_index]
+		return None
+	
+	def create_text_widget(self, page, x, y, text=""):
+		"""Create a text widget on a specific page"""
+		text_widget = page.add_textbox(x, y, 200, 100)
+		if text:
+			text_widget.set_text(text)
 		
 		# Create formatting toolbar
-		formatting_frame = self.create_formatting_toolbar(parent, text_widget)
+		formatting_frame = self.create_formatting_toolbar(page.frame, text_widget)
 		text_widget.formatting_frame = formatting_frame
 		
 		# Setup focus behavior
@@ -706,18 +814,101 @@ class NotebookApp:
 			if event.num == 3:  # Right click
 				text_widget.frame.destroy()
 				formatting_frame.destroy()
-				self.textboxes.remove(text_widget)
+				page.textboxes.remove(text_widget)
 				
 		text_widget.frame.bind("<Button-3>", delete_textbox)
 		text_widget.text_widget.bind("<Button-3>", delete_textbox)
 		
-		# Store reference
-		self.textboxes.append(text_widget)
+		# Bind textbox creation events to this page's canvas
+		self.setup_page_canvas_events(page)
+		
+		return text_widget
+	
+	def setup_page_canvas_events(self, page):
+		"""Setup event bindings for a page's canvas"""
+		canvas = page.canvas
+		
+		# Remove existing bindings to avoid duplicates
+		canvas.unbind("<Double-Button-1>")
+		canvas.unbind("<B1-Motion>")
+		canvas.unbind("<ButtonRelease-1>")
+		canvas.unbind("<Button-1>")
+		
+		# Add new bindings
+		canvas.bind("<Double-Button-1>", lambda e: self.start_textbox_creation(e, page))
+		canvas.bind("<B1-Motion>", lambda e: self.draw_selection_box(e, page))
+		canvas.bind("<ButtonRelease-1>", lambda e: self.finish_textbox_creation(e, page))
+		canvas.bind("<Button-1>", lambda e: self.remove_textbox_focus(e))
+	
+	def start_textbox_creation(self, event, page):
+		"""Start creating a text box on double-click"""
+		print(f"Double-click detected at ({event.x}, {event.y}) on page {page.page_number}")
+		self.creating_textbox = True
+		self.selection_start = (event.x, event.y)
+		self.current_page = page
+		
+		canvas = page.canvas
+		self.clear_selection_rect(canvas)
+
+		self.selection_rect = canvas.create_rectangle(
+			event.x, event.y, event.x, event.y,
+			outline="#000000",
+			dash=(4, 2),
+			width=2,
+			tags="selection"
+		)
+	
+	def draw_selection_box(self, event, page):
+		"""Draw the selection box while dragging"""
+		if not self.creating_textbox or not self.selection_start:
+			return
+
+		start_x, start_y = self.selection_start
+		canvas = page.canvas
+		canvas.coords(self.selection_rect, start_x, start_y, event.x, event.y)
+	
+	def finish_textbox_creation(self, event, page):
+		if not self.creating_textbox or not self.selection_start:
+			return
+
+		start_x, start_y = self.selection_start
+		end_x, end_y = event.x, event.y
+
+		width = abs(end_x - start_x)
+		height = abs(end_y - start_y)
+
+		if width < 100: width = 200
+		if height < 60: height = 100
+
+		x = min(start_x, end_x)
+		y = min(start_y, end_y)
+
+		# Create text widget
+		self.create_text_widget(page, x, y)
+		
+		# Clear selection
+		canvas = page.canvas
+		canvas.delete("selection")
 		
 		self.creating_textbox = False
 		self.selection_start = None
 		self.current_page = None
-		
+	
+	def clear_selection_rect(self, canvas):
+		"""Clear the selection rectangle from a canvas"""
+		canvas.delete("selection")
+	
+	def remove_textbox_focus(self, event):
+		"""Remove focus from all textboxes"""
+		# Hide formatting toolbar for all textboxes
+		for page in self.pages:
+			for textbox in page.textboxes:
+				if hasattr(textbox, 'formatting_frame') and textbox.formatting_frame.winfo_ismapped():
+					textbox.formatting_frame.place_forget()
+				if hasattr(textbox, 'has_focus') and textbox.has_focus:
+					textbox.on_focus_out()
+		self.root.focus()
+	
 	def create_formatting_toolbar(self, parent, text_widget):
 		"""Create formatting toolbar for a text widget"""
 		formatting_frame = ctk.CTkFrame(
@@ -784,11 +975,72 @@ class NotebookApp:
 		
 		return formatting_frame
 
-	def clear_selection_rect(self):
-		"""Clear the selection rectangle from canvases"""
-		self.left_canvas.delete("selection")
-		self.right_canvas.delete("selection")
-
+	def previous_page(self):
+		"""Go to previous page"""
+		if self.current_left_page_index > 0:
+			# Hide current pages
+			left_page = self.get_current_left_page()
+			right_page = self.get_current_right_page()
+			if left_page: left_page.hide()
+			if right_page: right_page.hide()
+			
+			# Update indices
+			self.current_left_page_index -= 2
+			self.current_right_page_index -= 2
+			
+			# Show new pages
+			left_page = self.get_current_left_page()
+			right_page = self.get_current_right_page()
+			if left_page: left_page.show()
+			if right_page: right_page.show()
+			
+			# Update navigation
+			self.update_navigation()
+	
+	def next_page(self):
+		"""Go to next page"""
+		# Check if we need to create new pages
+		if self.current_right_page_index + 1 >= len(self.pages):
+			self.add_new_pages()
+		
+		# Hide current pages
+		left_page = self.get_current_left_page()
+		right_page = self.get_current_right_page()
+		if left_page: left_page.hide()
+		if right_page: right_page.hide()
+		
+		# Update indices
+		self.current_left_page_index += 2
+		self.current_right_page_index += 2
+		
+		# Show new pages
+		left_page = self.get_current_left_page()
+		right_page = self.get_current_right_page()
+		if left_page: left_page.show()
+		if right_page: right_page.show()
+		
+		# Update navigation
+		self.update_navigation()
+	
+	def add_new_pages(self):
+		"""Add two new pages to the notebook"""
+		page_count = len(self.pages)
+		left_page = Page(self.page_container, True, page_count)
+		right_page = Page(self.page_container, False, page_count + 1)
+		
+		self.pages.append(left_page)
+		self.pages.append(right_page)
+		
+		# Setup canvas events for new pages
+		self.setup_page_canvas_events(left_page)
+		self.setup_page_canvas_events(right_page)
+	
+	def update_navigation(self):
+		"""Update navigation buttons and indicator"""
+		# Update button states
+		# The corner buttons will handle their own visual state
+		pass
+	
 	def create_top_bar(self):
 		# Create top bar
 		self.top_bar = ctk.CTkFrame(
@@ -846,6 +1098,23 @@ class NotebookApp:
 		)
 		file_btn.pack(side="left", padx=(10, 5), pady=5)
 		
+		# Add Page button
+		add_page_btn = ctk.CTkButton(
+			self.top_bar,
+			text="Add Page",
+			fg_color="transparent",
+			hover_color="#e0d0b0",
+			text_color="#5d4037",
+			font=("Segoe UI", 11),
+			width=80,
+			height=25,
+			corner_radius=3,
+			border_width=1,
+			border_color="#d4b98c",
+			command=self.add_new_pages_and_go
+		)
+		add_page_btn.pack(side="left", padx=5, pady=5)
+		
 		# Save button
 		save_btn = ctk.CTkButton(
 			self.top_bar,
@@ -865,9 +1134,13 @@ class NotebookApp:
 		# Spacer
 		spacer = ctk.CTkFrame(self.top_bar, fg_color="transparent")
 		spacer.pack(side="left", fill="x", expand=True)
-		
+	
+	def add_new_pages_and_go(self):
+		"""Add new pages and navigate to them"""
+		self.add_new_pages()
+		self.next_page()
+	
 	def import_image_file(self):
-		"""Open file dialog to import image"""
 		file_path = filedialog.askopenfilename(
 			title="Select Image",
 			filetypes=[
@@ -878,12 +1151,14 @@ class NotebookApp:
 		)
 		
 		if file_path:
-			# Place image in center of current view
-			parent = self.left_page  # Default to left page
-			x = parent.winfo_width() // 2 - 100
-			y = parent.winfo_height() // 2 - 100
-			
-			self.create_image_widget(parent, x, y, file_path)
+			# Place image in center of current left page
+			page = self.get_current_left_page()
+			if page:
+				canvas = page.canvas
+				x = canvas.winfo_width() // 2 - 100
+				y = canvas.winfo_height() // 2 - 100
+				
+				page.add_image(x, y, file_path)
 	
 	def create_sidebar(self):
 		# Create left sidebar - slightly darker than page color
@@ -906,7 +1181,7 @@ class NotebookApp:
 		)
 		sidebar_header.pack(fill="x", pady=(10, 0))
 		
-		# Empty page list
+		# Page list
 		self.page_list = ctk.CTkScrollableFrame(
 			self.sidebar,
 			fg_color="#b5a184",
@@ -914,14 +1189,100 @@ class NotebookApp:
 		)
 		self.page_list.pack(fill="both", expand=True, padx=10, pady=10)
 		
-		# Empty label
-		empty_label = ctk.CTkLabel(
-			self.page_list,
-			text="No pages yet",
-			font=("Segoe UI", 12),
-			text_color="#5d4c3e"
-		)
-		empty_label.pack(pady=20)
+		# Update page list
+		self.update_sidebar_page_list()
+	
+	def update_sidebar_page_list(self):
+		"""Update the page list in sidebar"""
+		# Clear current list
+		for widget in self.page_list.winfo_children():
+			widget.destroy()
+		
+		# Add page buttons
+		for i, page in enumerate(self.pages):
+			page_btn = ctk.CTkButton(
+				self.page_list,
+				text=f"Page {i + 1}",
+				fg_color="#e0d0b0",
+				hover_color="#d0c0a0",
+				text_color="#3d2c1e",
+				font=("Segoe UI", 11),
+				height=30,
+				command=lambda idx=i: self.go_to_page(idx)
+			)
+			page_btn.pack(fill="x", pady=2)
+	
+	def go_to_page(self, page_index):
+		"""Go to a specific page"""
+		# Calculate which pages to show
+		if page_index % 2 == 0:  # Even index = left page
+			self.current_left_page_index = page_index
+			self.current_right_page_index = page_index + 1
+		else:  # Odd index = right page
+			self.current_left_page_index = page_index - 1
+			self.current_right_page_index = page_index
+		
+		# Ensure indices are valid
+		if self.current_right_page_index >= len(self.pages):
+			self.add_new_pages()
+		
+		# Hide all pages
+		for page in self.pages:
+			page.hide()
+		
+		# Show selected pages
+		left_page = self.get_current_left_page()
+		right_page = self.get_current_right_page()
+		if left_page: left_page.show()
+		if right_page: right_page.show()
+		
+		# Update navigation
+		self.update_navigation()
+		
+		# Close sidebar
+		self.close_sidebar()
+	
+	def setup_sidebar_close_binding(self):
+		# Bind left-click anywhere on the root
+		self.root.bind("<Button-1>", self.check_click_outside_sidebar)
+
+	def check_click_outside_sidebar(self, event):
+		if not self.sidebar_visible:
+			return
+
+		# Ignore clicks inside sidebar
+		if self.sidebar is not None:
+			sx1 = self.sidebar.winfo_x()
+			sy1 = self.sidebar.winfo_y()
+			sx2 = sx1 + self.sidebar.winfo_width()
+			sy2 = sy1 + self.sidebar.winfo_height()
+			if sx1 <= event.x <= sx2 and sy1 <= event.y <= sy2:
+				return
+
+		# Ignore clicks inside top bar
+		if self.top_bar is not None and self.top_bar_visible:
+			tx1 = self.top_bar.winfo_x()
+			ty1 = self.top_bar.winfo_y()
+			tx2 = tx1 + self.top_bar.winfo_width()
+			ty2 = ty1 + self.top_bar.winfo_height()
+			if tx1 <= event.x <= tx2 and ty1 <= event.y <= ty2:
+				return
+
+		# Otherwise, click is outside sidebar → close it
+		self.close_sidebar()
+	
+	def is_mouse_over_widget(self, widget, event):
+		"""Check if mouse is over a widget using relative coordinates"""
+		try:
+			widget_x = widget.winfo_x()
+			widget_y = widget.winfo_y()
+			widget_width = widget.winfo_width()
+			widget_height = widget.winfo_height()
+			
+			return (widget_x <= event.x <= widget_x + widget_width and 
+					widget_y <= event.y <= widget_y + widget_height)
+		except:
+			return False
 	
 	def toggle_sidebar(self, event=None):
 		if self.sidebar_visible:
@@ -931,6 +1292,8 @@ class NotebookApp:
 	
 	def open_sidebar(self):
 		if not self.sidebar_visible:
+			# Update page list before showing
+			self.update_sidebar_page_list()
 			self.sidebar.place(x=0, y=0, relheight=1.0)
 			self.sidebar_visible = True
 	
@@ -947,10 +1310,11 @@ class NotebookApp:
 			return
 
 		# Check if cursor is over any formatting toolbar
-		for textbox in self.textboxes:
-			if hasattr(textbox, 'formatting_frame') and textbox.formatting_frame.winfo_ismapped():
-				if self.is_mouse_over_widget(textbox.formatting_frame, event):
-					return
+		for page in self.pages:
+			for textbox in page.textboxes:
+				if hasattr(textbox, 'formatting_frame') and textbox.formatting_frame.winfo_ismapped():
+					if self.is_mouse_over_widget(textbox.formatting_frame, event):
+						return
 
 		# Original behavior
 		if event.y < 30:
