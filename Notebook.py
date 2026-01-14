@@ -521,87 +521,77 @@ class ImageWidget:
 		self.canvas.delete(self.image_id)
 
 
+# First, update the Page class to include a name
 class Page:
-	"""Represents a single page in the notebook"""
-	def __init__(self, parent, is_left_page, page_number):
-		self.parent = parent
-		self.is_left_page = is_left_page
-		self.page_number = page_number
-		
-		# Create page frame
-		self.frame = ctk.CTkFrame(
-			parent,
-			fg_color="#c1a273",
-			border_width=0,
-			corner_radius=0
-		)
-		
-		# Canvas for drawing selection boxes and images
-		self.canvas = tk.Canvas(
-			self.frame,
-			bg="#c1a273",
-			highlightthickness=0
-		)
-		self.canvas.place(relx=0, rely=0, relwidth=1, relheight=1)
-		
-		# Store widgets on this page
-		self.textboxes = []  # FormattedTextWidget objects
-		self.images = []     # ImageWidget objects
-		
-		# Set font for page label
-		if HAS_CUSTOM_FONT:
-			label_font = ("Adeliz", 24)
-		else:
-			label_font = ("Arial", 24)
-		
-		# Page number label (bottom corner)
-		self.page_label = ctk.CTkLabel(
-			self.frame,
-			text=f"Page {page_number + 1}",
-			text_color="#5d4037",
-			font=label_font
-		)
-		
-		# Place label based on page side
-		if is_left_page:
-			self.page_label.place(relx=0.02, rely=0.97, anchor="sw")
-		else:
-			self.page_label.place(relx=0.98, rely=0.97, anchor="se")
-	
-	def show(self):
-		"""Show this page"""
-		if self.is_left_page:
-			self.frame.place(relx=0, rely=0, relwidth=0.5, relheight=1.0)
-		else:
-			self.frame.place(relx=0.5, rely=0, relwidth=0.5, relheight=1.0)
-	
-	def hide(self):
-		"""Hide this page"""
-		self.frame.place_forget()
-	
-	def add_textbox(self, x, y, width, height):
-		"""Add a textbox to this page"""
-		textbox = FormattedTextWidget(self.frame, x, y, width, height, page_color="#c1a273")
-		self.textboxes.append(textbox)
-		return textbox
-	
-	def add_image(self, x, y, image_path):
-		"""Add an image to this page"""
-		image_widget = ImageWidget(self.canvas, x, y, image_path)
-		self.images.append(image_widget)
-		return image_widget
-	
-	def clear(self):
-		"""Clear all widgets from this page"""
-		for textbox in self.textboxes:
-			textbox.frame.destroy()
-			if hasattr(textbox, 'formatting_frame'):
-				textbox.formatting_frame.destroy()
-		self.textboxes.clear()
-		
-		for image in self.images:
-			image.canvas.delete(image.image_id)
-		self.images.clear()
+    """Represents a single page in the notebook"""
+    def __init__(self, parent, is_left_page, page_number):
+        self.parent = parent
+        self.is_left_page = is_left_page
+        self.page_number = page_number
+        self.name = f"Page {page_number + 1}"  # Default name
+        
+        # Create page frame
+        self.frame = ctk.CTkFrame(
+            parent,
+            fg_color="#c1a273",
+            border_width=0,
+            corner_radius=0
+        )
+        
+        # Canvas for drawing selection boxes and images
+        self.canvas = tk.Canvas(
+            self.frame,
+            bg="#c1a273",
+            highlightthickness=0
+        )
+        self.canvas.place(relx=0, rely=0, relwidth=1, relheight=1)
+        
+        # Store widgets on this page
+        self.textboxes = []  # FormattedTextWidget objects
+        self.images = []     # ImageWidget objects
+    
+    def set_name(self, name):
+        """Set the page name"""
+        self.name = name
+        
+    def get_display_text(self):
+        """Get display text for buttons/labels"""
+        return f"{self.page_number + 1}. {self.name}"
+    
+    def show(self):
+        """Show this page"""
+        if self.is_left_page:
+            self.frame.place(relx=0, rely=0, relwidth=0.5, relheight=1.0)
+        else:
+            self.frame.place(relx=0.5, rely=0, relwidth=0.5, relheight=1.0)
+    
+    def hide(self):
+        """Hide this page"""
+        self.frame.place_forget()
+    
+    def add_textbox(self, x, y, width, height):
+        """Add a textbox to this page"""
+        textbox = FormattedTextWidget(self.frame, x, y, width, height, page_color="#c1a273")
+        self.textboxes.append(textbox)
+        return textbox
+    
+    def add_image(self, x, y, image_path):
+        """Add an image to this page"""
+        image_widget = ImageWidget(self.canvas, x, y, image_path)
+        self.images.append(image_widget)
+        return image_widget
+    
+    def clear(self):
+        """Clear all widgets from this page"""
+        for textbox in self.textboxes:
+            textbox.frame.destroy()
+            if hasattr(textbox, 'formatting_frame'):
+                textbox.formatting_frame.destroy()
+        self.textboxes.clear()
+        
+        for image in self.images:
+            image.canvas.delete(image.image_id)
+        self.images.clear()
 
 
 class PageCornerButton:
@@ -830,7 +820,11 @@ class NotebookApp:
 										   sound_player=self.sound_player)
 		self.next_corner.place(relx=1.0, rely=1.0, anchor="se")
 		
-		# Initialize pages
+		# Create top bar FIRST
+		self.create_top_bar()
+		self.top_bar.place_forget()
+		
+		# Initialize pages AFTER creating top bar
 		self.initialize_pages()
 		
 		# Bind text box creation events
@@ -851,12 +845,11 @@ class NotebookApp:
 		# Bind mouse movement to show/hide bar
 		self.root.bind("<Motion>", self.check_mouse_position)
 		
-		# Create hidden top bar initially
-		self.create_top_bar()
-		self.top_bar.place_forget()
-		
 		# Create sidebar
 		self.create_sidebar()
+	
+		# Initialize page name editor
+		self.page_name_editor = None
 
 	def setup_custom_font(self):
 		"""Try to install custom font system-wide"""
@@ -917,6 +910,8 @@ class NotebookApp:
 		
 		# Update navigation
 		self.update_navigation()
+		# Update top bar with initial page names
+		self.update_top_bar_page_name() 
 
 
 	def create_seam(self):
@@ -1199,28 +1194,6 @@ class NotebookApp:
 		
 		return formatting_frame
 
-	def previous_page(self):
-		"""Go to previous page"""
-		if self.current_left_page_index > 0:
-			# Hide current pages
-			left_page = self.get_current_left_page()
-			right_page = self.get_current_right_page()
-			if left_page: left_page.hide()
-			if right_page: right_page.hide()
-			
-			# Update indices
-			self.current_left_page_index -= 2
-			self.current_right_page_index -= 2
-			
-			# Show new pages
-			left_page = self.get_current_left_page()
-			right_page = self.get_current_right_page()
-			if left_page: left_page.show()
-			if right_page: right_page.show()
-			
-			# Update navigation
-			self.update_navigation()
-	
 	def next_page(self):
 		"""Go to next page"""
 		# Check if we need to create new pages
@@ -1245,6 +1218,34 @@ class NotebookApp:
 		
 		# Update navigation
 		self.update_navigation()
+		
+		# Update top bar name display
+		self.update_top_bar_page_name()
+	
+	def previous_page(self):
+		"""Go to previous page"""
+		if self.current_left_page_index > 0:
+			# Hide current pages
+			left_page = self.get_current_left_page()
+			right_page = self.get_current_right_page()
+			if left_page: left_page.hide()
+			if right_page: right_page.hide()
+			
+			# Update indices
+			self.current_left_page_index -= 2
+			self.current_right_page_index -= 2
+			
+			# Show new pages
+			left_page = self.get_current_left_page()
+			right_page = self.get_current_right_page()
+			if left_page: left_page.show()
+			if right_page: right_page.show()
+			
+			# Update navigation
+			self.update_navigation()
+			
+			# Update top bar name display
+			self.update_top_bar_page_name()
 	
 	def add_new_pages(self):
 		"""Add two new pages to the notebook"""
@@ -1258,6 +1259,9 @@ class NotebookApp:
 		# Setup canvas events for new pages
 		self.setup_page_canvas_events(left_page)
 		self.setup_page_canvas_events(right_page)
+
+		# Update sidebar to show new pages
+		self.update_sidebar_page_list()
 	
 	def update_navigation(self):
 		"""Update navigation buttons and indicator"""
@@ -1310,6 +1314,44 @@ class NotebookApp:
 			topbar_font = ("Adeliz", 24)
 		else:
 			topbar_font = ("Segoe UI", 24)
+		
+		# PAGE NAME DISPLAY (clickable to edit) - CENTER
+		# Create a frame for the page name display
+		page_name_frame = ctk.CTkFrame(
+			self.top_bar,
+			fg_color="transparent",
+			height=25,
+			corner_radius=3
+		)
+		page_name_frame.pack(side="left", padx=(20, 0), pady=5)
+		
+		# Get current page display text
+		left_page = self.get_current_left_page()
+		right_page = self.get_current_right_page()
+		display_text = ""
+		if left_page and right_page:
+			display_text = f"{left_page.get_display_text()} | {right_page.get_display_text()}"
+		elif left_page:
+			display_text = left_page.get_display_text()
+		elif right_page:
+			display_text = right_page.get_display_text()
+		
+		# Create clickable page name label
+		self.page_name_label = ctk.CTkLabel(
+			page_name_frame,
+			text=display_text,
+			text_color="#5d4037",
+			font=topbar_font,
+			cursor="hand2"
+		)
+		self.page_name_label.pack()
+		
+		# Bind click event to edit page name
+		self.page_name_label.bind("<Button-1>", self.start_page_name_edit)
+		
+		# Spacer between page name and other buttons
+		spacer1 = ctk.CTkFrame(self.top_bar, fg_color="transparent")
+		spacer1.pack(side="left", fill="x", expand=True)
 		
 		# File button with image import option
 		file_btn = ctk.CTkButton(
@@ -1364,7 +1406,133 @@ class NotebookApp:
 		# Spacer
 		spacer = ctk.CTkFrame(self.top_bar, fg_color="transparent")
 		spacer.pack(side="left", fill="x", expand=True)
+	def start_page_name_edit(self, event):
+		"""Start editing the page name - detect which page was clicked"""
+		# Hide the label
+		self.page_name_label.pack_forget()
+		
+		# Create entry widget for editing
+		page_name_frame = self.page_name_label.master
+		
+		# Get current pages
+		left_page = self.get_current_left_page()
+		right_page = self.get_current_right_page()
+		
+		# Determine which page was clicked based on mouse position
+		label_width = self.page_name_label.winfo_width()
+		click_x = event.x
+		
+		# If we have both pages, check which part was clicked
+		if left_page and right_page:
+			# Rough estimate: left half = left page, right half = right page
+			if click_x < label_width / 2:
+				current_page = left_page
+			else:
+				current_page = right_page
+		else:
+			# Only one page visible
+			current_page = left_page if left_page else right_page
+		
+		if not current_page:
+			return
+			
+		# Create entry with current name
+		self.page_name_entry = ctk.CTkEntry(
+			page_name_frame,
+			fg_color="#f5e8c8",
+			text_color="#5d4037",
+			border_color="#d4b98c",
+			font=("Adeliz", 24) if HAS_CUSTOM_FONT else ("Segoe UI", 24),
+			width=300,
+			height=25
+		)
+		self.page_name_entry.pack()
+		self.page_name_entry.insert(0, current_page.name)
+		self.page_name_entry.select_range(0, tk.END)
+		self.page_name_entry.focus()
+		
+		# Bind Enter key to save
+		self.page_name_entry.bind("<Return>", lambda e: self.save_page_name(current_page))
+		# Bind Escape key to cancel
+		self.page_name_entry.bind("<Escape>", self.cancel_page_name_edit)
+		# Bind focus out to save
+		self.page_name_entry.bind("<FocusOut>", lambda e: self.save_page_name(current_page))
+		
+		# Store which page we're editing
+		self.editing_page = current_page
+		
+	def save_page_name(self, page):
+		"""Save the edited page name"""
+		if not hasattr(self, 'page_name_entry'):
+			return
+			
+		new_name = self.page_name_entry.get().strip()
+		if new_name:
+			page.set_name(new_name)
+			
+			# Update top bar display
+			self.update_top_bar_page_name()
+			
+			# Update sidebar
+			self.update_sidebar_page_list()
+		
+		# Clean up
+		self.cancel_page_name_edit()
+		
+	def cancel_page_name_edit(self, event=None):
+		"""Cancel page name editing"""
+		if hasattr(self, 'page_name_entry'):
+			self.page_name_entry.destroy()
+			del self.page_name_entry
+			
+		if hasattr(self, 'editing_page'):
+			del self.editing_page
+			
+		# Show the label again
+		self.page_name_label.pack()
+		
+	def update_top_bar_page_name(self):
+		"""Update the page name display in top bar"""
+		left_page = self.get_current_left_page()
+		right_page = self.get_current_right_page()
+		display_text = ""
+		
+		if left_page and right_page:
+			display_text = f"{left_page.get_display_text()} | {right_page.get_display_text()}"
+		elif left_page:
+			display_text = left_page.get_display_text()
+		elif right_page:
+			display_text = right_page.get_display_text()
+			
+		self.page_name_label.configure(text=display_text)
 	
+	def update_sidebar_page_list(self):
+		"""Update the page list in sidebar"""
+		# Clear current list
+		for widget in self.page_list.winfo_children():
+			widget.destroy()
+		
+		# Set font for page buttons - BIGGER for 1920x1080
+		if HAS_CUSTOM_FONT:
+			page_btn_font = ("Adeliz", 20)  # Increased from 11 to 20
+		else:
+			page_btn_font = ("Segoe UI", 20)
+		
+		# Add page buttons with names
+		for i, page in enumerate(self.pages):
+			page_btn = ctk.CTkButton(
+				self.page_list,
+				text=page.get_display_text(),
+				fg_color="#e0d0b0",
+				hover_color="#d0c0a0",
+				text_color="#3d2c1e",
+				font=page_btn_font,
+				height=50,  # Increased from 30 to 50
+				corner_radius=5,  # Added corner radius
+				command=lambda idx=i: self.go_to_page(idx)
+			)
+			page_btn.pack(fill="x", pady=8, padx=5)  # More padding
+
 	def add_new_pages_and_go(self):
 		"""Add new pages and navigate to them"""
 		self.add_new_pages()
@@ -1395,19 +1563,19 @@ class NotebookApp:
 		self.sidebar = ctk.CTkFrame(
 			self.root,
 			fg_color="#a08c6e",
-			width=200,
+			width=250,  # Increased width for bigger text
 			corner_radius=0
 		)
 		self.sidebar.pack_propagate(False)
-		self.sidebar.place(x=-200, y=0, relheight=1.0)
+		self.sidebar.place(x=-250, y=0, relheight=1.0)  # Updated x position
 		
-		# Set font for sidebar
+		# Set font for sidebar - MUCH BIGGER for 1920x1080
 		if HAS_CUSTOM_FONT:
-			sidebar_font = ("Adeliz", 24, "bold")
-			page_list_font = ("Adeliz", 24)
+			sidebar_font = ("Adeliz", 32, "bold")  # Increased from 24 to 32
+			page_list_font = ("Adeliz", 28)        # Increased from 24 to 28
 		else:
-			sidebar_font = ("Segoe UI", 24, "bold")
-			page_list_font = ("Segoe UI", 24)
+			sidebar_font = ("Segoe UI", 32, "bold")
+			page_list_font = ("Segoe UI", 28)
 		
 		# Sidebar header
 		sidebar_header = ctk.CTkLabel(
@@ -1415,47 +1583,23 @@ class NotebookApp:
 			text="Pages",
 			font=sidebar_font,
 			text_color="#3d2c1e",
-			height=40
+			height=60  # Increased height
 		)
-		sidebar_header.pack(fill="x", pady=(10, 0))
+		sidebar_header.pack(fill="x", pady=(20, 10))  # More padding
 		
 		# Page list
 		self.page_list = ctk.CTkScrollableFrame(
 			self.sidebar,
 			fg_color="#b5a184",
-			corner_radius=0
+			corner_radius=0,
+			height=600  # Set a fixed height if needed
 		)
-		self.page_list.pack(fill="both", expand=True, padx=10, pady=10)
+		self.page_list.pack(fill="both", expand=True, padx=15, pady=10)  # More padding
 		
 		# Update page list
 		self.update_sidebar_page_list()
 	
-	def update_sidebar_page_list(self):
-		"""Update the page list in sidebar"""
-		# Clear current list
-		for widget in self.page_list.winfo_children():
-			widget.destroy()
-		
-		# Set font for page buttons
-		if HAS_CUSTOM_FONT:
-			page_btn_font = ("Adeliz", 11)
-		else:
-			page_btn_font = ("Segoe UI", 11)
-		
-		# Add page buttons
-		for i, page in enumerate(self.pages):
-			page_btn = ctk.CTkButton(
-				self.page_list,
-				text=f"Page {i + 1}",
-				fg_color="#e0d0b0",
-				hover_color="#d0c0a0",
-				text_color="#3d2c1e",
-				font=page_btn_font,
-				height=30,
-				command=lambda idx=i: self.go_to_page(idx)
-			)
-			page_btn.pack(fill="x", pady=2)
-	
+
 	def go_to_page(self, page_index):
 		"""Go to a specific page"""
 		# Calculate which pages to show
@@ -1482,6 +1626,9 @@ class NotebookApp:
 		
 		# Update navigation
 		self.update_navigation()
+		
+		# Update top bar name display
+		self.update_top_bar_page_name()
 		
 		# Close sidebar
 		self.close_sidebar()
@@ -1543,12 +1690,12 @@ class NotebookApp:
 	
 	def close_sidebar(self, event=None):
 		if self.sidebar_visible:
-			self.sidebar.place(x=-200, y=0, relheight=1.0)
+			self.sidebar.place(x=-250, y=0, relheight=1.0)  # Updated from -200 to -250
 			self.sidebar_visible = False
-	
+
 	def check_mouse_position(self, event):
 		# Don't show top bar if sidebar is open
-		if self.sidebar_visible and event.x < 200:
+		if self.sidebar_visible and event.x < 250:  # Updated from 200 to 250
 			if not self.top_bar_visible:
 				self.show_top_bar()
 			return
