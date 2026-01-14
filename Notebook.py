@@ -95,7 +95,8 @@ class FormattedTextWidget:
 			wrap="word",
 			borderwidth=0,
 			highlightthickness=0,
-			insertbackground="#3d2c1e"
+			insertbackground="#3d2c1e",
+			cursor="xterm"  # Regular text cursor
 		)
 		self.text_widget.pack(fill="both", expand=True, padx=0, pady=0)
 		self.text_widget.insert("1.0", "Click to edit...")
@@ -115,62 +116,168 @@ class FormattedTextWidget:
 		self.is_dragging = False
 		self.is_resizing = False
 		
-		# Create resize handle
-		self.create_resize_handle()
+		# Create resize and move handles
+		self.create_handles()
 		
 		# Bind events
 		self.setup_event_bindings()
 		
-	def create_resize_handle(self):
-		"""Create a resize handle in bottom-right corner"""
-		self.resize_handle = ctk.CTkFrame(
+	def create_handles(self):
+		"""Create resize and move handles"""
+		# Create a handles container frame (top of the text box) - use regular tk.Frame
+		self.handles_frame = tk.Frame(
 			self.frame,
-			fg_color="#a08c6e",
-			width=12,
-			height=12,
-			corner_radius=3
+			bg="#a08c6e",
+			height=15,
+			relief="flat",
+			borderwidth=0
 		)
-		self.resize_handle.place(relx=1.0, rely=1.0, anchor="se")
-		self.resize_handle.lower()
+		self.handles_frame.pack(side="top", fill="x", padx=0, pady=0)
+		self.handles_frame.pack_propagate(False)  # Don't let children resize
+		
+		# Create move handle (left side) - hand icon or text
+		self.move_handle = tk.Label(
+			self.handles_frame,
+			text="☝",  # Hand emoji
+			bg="#a08c6e",
+			fg="#3d2c1e",
+			font=("Arial", 10),
+			relief="raised",
+			borderwidth=1,
+			cursor="hand2"
+		)
+		self.move_handle.pack(side="left", padx=(2, 0), pady=1)
+		
+		# Spacer to push resize to right
+		spacer = tk.Frame(self.handles_frame, bg="#a08c6e")
+		spacer.pack(side="left", fill="x", expand=True)
+		
+		# Create resize handle (right side)
+		self.resize_handle = tk.Label(
+			self.handles_frame,
+			text="↘",  # Resize emoji
+			bg="#a08c6e",
+			fg="#3d2c1e",
+			font=("Arial", 10),
+			relief="raised",
+			borderwidth=1,
+			cursor="sizing"
+		)
+		self.resize_handle.pack(side="right", padx=(0, 2), pady=1)
+		
+		# Hide handles initially (only show on hover/focus)
+		self.handles_frame.pack_forget()
+		
+	def focus_for_move(self):
+		"""Prepare widget for moving"""
+		self.on_focus_in()
+		self.is_dragging = True
+		self.frame.configure(cursor="fleur" if sys.platform != "darwin" else "hand2")
+		
+	def focus_for_resize(self):
+		"""Prepare widget for resizing"""
+		self.on_focus_in()
+		self.is_resizing = True
+		self.frame.configure(cursor="sizing" if sys.platform != "darwin" else "bottom_right_corner")
 		
 	def setup_event_bindings(self):
-		"""Setup drag and resize event bindings"""
-		# Dragging works by clicking anywhere in the frame or text widget
-		for widget in [self.frame, self.text_widget]:
-			widget.bind("<Button-1>", self.start_drag)
-			widget.bind("<B1-Motion>", self.do_drag)
-			widget.bind("<ButtonRelease-1>", self.stop_drag)
-
-		# Resize handle events
+		"""Setup event bindings for text widget and handles"""
+		# TEXT WIDGET: Only for text editing, not moving
+		self.text_widget.bind("<Button-1>", self.on_text_click)
+		self.text_widget.bind("<B1-Motion>", self.on_text_motion)
+		
+		# FRAME: For moving via the frame itself (alternative to button)
+		self.frame.bind("<Button-1>", self.start_drag_via_frame)
+		self.frame.bind("<B1-Motion>", self.do_drag)
+		self.frame.bind("<ButtonRelease-1>", self.stop_drag)
+		
+		# RESIZE HANDLE events
 		self.resize_handle.bind("<Button-1>", self.start_resize)
 		self.resize_handle.bind("<B1-Motion>", self.do_resize)
 		self.resize_handle.bind("<ButtonRelease-1>", self.stop_resize)
 		
+		# MOVE HANDLE events
+		self.move_handle.bind("<Button-1>", self.start_drag)
+		self.move_handle.bind("<B1-Motion>", self.do_drag)
+		self.move_handle.bind("<ButtonRelease-1>", self.stop_drag)
+		
+		# Show/hide handles on hover
+		self.frame.bind("<Enter>", self.show_handles)
+		self.frame.bind("<Leave>", self.hide_handles)
+		self.text_widget.bind("<Enter>", self.show_handles)
+		self.text_widget.bind("<Leave>", self.hide_handles)
+		
+	def on_text_click(self, event):
+		"""Handle click inside text widget - only for text selection"""
+		# Don't start drag when clicking in text widget
+		self.is_dragging = False
+		# Let tkinter handle text selection normally
+		return
+	
+	def on_text_motion(self, event):
+		"""Handle motion in text widget - only for text selection"""
+		# Don't drag when selecting text
+		return
+	
+	def start_drag_via_frame(self, event):
+		"""Start dragging when clicking on frame (not text)"""
+		# Check if we're clicking on the frame background, not text widget
+		if event.widget == self.frame:
+			self.start_drag(event)
+	
+	def show_handles(self, event=None):
+		"""Show move and resize handles"""
+		if not self.has_focus:
+			self.handles_frame.pack(side="bottom", fill="x", padx=0, pady=0, before=self.text_widget)
+	
+	def hide_handles(self, event=None):
+		"""Hide move and resize handles"""
+		if not self.has_focus:
+			self.handles_frame.pack_forget()
+	
 	def on_focus_in(self, event=None):
-		"""Handle focus in - show border and resize handle"""
+		"""Handle focus in - show border and handles"""
 		self.has_focus = True
 		self.frame.configure(border_color="#5d4037", border_width=2)
 		self.text_widget.configure(bg="#f5e8c8")
-		self.resize_handle.lift()
-		self.resize_handle.configure(fg_color="#5d4037")
+		# Show handles when focused
+		self.handles_frame.pack(side="bottom", fill="x", padx=0, pady=0, before=self.text_widget)
+		self.handles_frame.configure(bg="#5d4037")
+		self.move_handle.configure(bg="#5d4037")
+		self.resize_handle.configure(bg="#5d4037")
 		
+		# Move toolbar if visible
+		if hasattr(self, "formatting_frame") and self.formatting_frame.winfo_ismapped():
+			self.formatting_frame.place(x=self.x, y=self.y-40)
+	
 	def on_focus_out(self, event=None):
-		"""Handle focus out - hide border and resize handle"""
+		"""Handle focus out - hide border and handles"""
 		self.has_focus = False
+		self.is_dragging = False
+		self.is_resizing = False
 		self.frame.configure(border_color=self.page_color, border_width=0)
 		self.text_widget.configure(bg=self.page_color)
-		self.resize_handle.lower()
-		self.resize_handle.configure(fg_color=self.page_color)
+		# Hide handles when not focused
+		self.handles_frame.pack_forget()
+		self.handles_frame.configure(bg="#a08c6e")
+		self.move_handle.configure(bg="#a08c6e")
+		self.resize_handle.configure(bg="#a08c6e")
 		
 	def start_drag(self, event):
 		"""Start dragging the widget"""
 		self.is_dragging = True
+		self.is_resizing = False
 		self.drag_start_x = event.x_root
 		self.drag_start_y = event.y_root
 		self.drag_start_frame_x = self.frame.winfo_x()
 		self.drag_start_frame_y = self.frame.winfo_y()
 		
+		# Change cursor to move cursor
+		self.frame.configure(cursor="fleur" if sys.platform != "darwin" else "hand2")
+		self.text_widget.configure(cursor="fleur" if sys.platform != "darwin" else "hand2")
+		
 	def do_drag(self, event):
+		"""Drag the widget"""
 		if not self.is_dragging:
 			return
 
@@ -202,14 +309,22 @@ class FormattedTextWidget:
 	def stop_drag(self, event):
 		"""Stop dragging"""
 		self.is_dragging = False
+		# Reset cursor
+		self.frame.configure(cursor="")
+		self.text_widget.configure(cursor="xterm")
 		
 	def start_resize(self, event):
 		"""Start resizing the widget"""
 		self.is_resizing = True
+		self.is_dragging = False
 		self.resize_start_x = event.x_root
 		self.resize_start_y = event.y_root
 		self.resize_start_width = self.width
 		self.resize_start_height = self.height
+		
+		# Change cursor to resize cursor
+		self.frame.configure(cursor="sizing" if sys.platform != "darwin" else "bottom_right_corner")
+		self.text_widget.configure(cursor="sizing" if sys.platform != "darwin" else "bottom_right_corner")
 		
 	def do_resize(self, event):
 		"""Resize the widget"""
@@ -228,8 +343,6 @@ class FormattedTextWidget:
 
 		if hasattr(self, "formatting_frame") and self.formatting_frame.winfo_ismapped():
 			self.formatting_frame.place(x=self.x, y=self.y-40)
-		
-		self.resize_handle.place(relx=1.0, rely=1.0, anchor="se")
 		
 		chars = max(10, int(new_width / 7))
 		lines = max(3, int(new_height / 20))
@@ -257,7 +370,9 @@ class FormattedTextWidget:
 	def stop_resize(self, event):
 		"""Stop resizing"""
 		self.is_resizing = False
-		
+		# Reset cursor
+		self.frame.configure(cursor="")
+		self.text_widget.configure(cursor="xterm")
 	def get_text(self):
 		"""Get text content"""
 		return self.text_widget.get("1.0", "end-1c")
