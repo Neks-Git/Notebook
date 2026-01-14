@@ -5,7 +5,7 @@ a = Analysis(
     ['Notebook.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[('Adeliz-Regular.otf', '.'), ('Adeliz-Regular.ttf', '.'), ('flip.mp3', '.')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

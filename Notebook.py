@@ -4,7 +4,50 @@ from tkinter import filedialog
 from tkinterdnd2 import DND_FILES, TkinterDnD
 from PIL import Image, ImageTk
 import os
+import sys
 import pygame  # Add pygame for sound playback
+
+def resource_path(relative_path):
+	"""Get absolute path to resource, works for dev and for PyInstaller"""
+	try:
+		# PyInstaller creates a temp folder and stores path in _MEIPASS
+		base_path = sys._MEIPASS
+	except Exception:
+		base_path = os.path.abspath(".")
+	
+	return os.path.join(base_path, relative_path)
+# Try to load custom fonts
+def load_custom_fonts():
+	"""Load custom fonts if they exist"""
+	font_files = [
+		"Adeliz-Regular.ttf",
+		"Adeliz-Regular.otf"
+	]
+	
+	loaded_fonts = []
+	
+	for font_file in font_files:
+		try:
+			# Try both in executable directory and bundled resources
+			paths_to_try = [
+				font_file,  # Current directory
+				resource_path(font_file),  # Bundled resources
+				os.path.join(os.path.dirname(__file__), font_file)  # Script directory
+			]
+			
+			for path in paths_to_try:
+				if os.path.exists(path):
+					print(f"Found font file: {path}")
+					loaded_fonts.append(path)
+					break
+		except Exception as e:
+			print(f"Could not load font {font_file}: {e}")
+	
+	return loaded_fonts
+
+# Load fonts at module level
+CUSTOM_FONTS = load_custom_fonts()
+HAS_CUSTOM_FONT = len(CUSTOM_FONTS) > 0
 
 class FormattedTextWidget:
 	"""Custom widget that combines CTkFrame with tk.Text for formatting"""
@@ -29,12 +72,25 @@ class FormattedTextWidget:
 		self.frame.place(x=x, y=y)
 		self.frame.pack_propagate(False)
 		
+		# Set font based on availability
+		if HAS_CUSTOM_FONT:
+			text_font = ("Adeliz", 45)
+			# Try to create the font object
+			try:
+				# Create a tkinter font object for the text widget
+				self.custom_font = tk.font.Font(family="Adeliz", size=45)
+				text_font = self.custom_font
+			except:
+				text_font = ("Adeliz", 45)
+		else:
+			text_font = ("Arial", 45)
+		
 		# Create tk.Text widget inside frame
 		self.text_widget = tk.Text(
 			self.frame,
 			bg=self.page_color,
 			fg="#3d2c1e",
-			font=("Arial", 11),
+			font=text_font,
 			relief="flat",
 			wrap="word",
 			borderwidth=0,
@@ -45,9 +101,15 @@ class FormattedTextWidget:
 		self.text_widget.insert("1.0", "Click to edit...")
 		
 		# Configure text tags for formatting
-		self.text_widget.tag_configure("bold", font=("Arial", 11, "bold"))
-		self.text_widget.tag_configure("italic", font=("Arial", 11, "italic"))
-		self.text_widget.tag_configure("bolditalic", font=("Arial", 11, "bold italic"))
+		if HAS_CUSTOM_FONT:
+			# For custom font, we'll use normal font and simulate bold/italic
+			self.text_widget.tag_configure("bold", font=(text_font if isinstance(text_font, str) else "Adeliz", 11, "bold"))
+			self.text_widget.tag_configure("italic", font=(text_font if isinstance(text_font, str) else "Adeliz", 11, "italic"))
+			self.text_widget.tag_configure("bolditalic", font=(text_font if isinstance(text_font, str) else "Adeliz", 11, "bold italic"))
+		else:
+			self.text_widget.tag_configure("bold", font=("Arial", 11, "bold"))
+			self.text_widget.tag_configure("italic", font=("Arial", 11, "italic"))
+			self.text_widget.tag_configure("bolditalic", font=("Arial", 11, "bold italic"))
 		
 		# Store position and size
 		self.is_dragging = False
@@ -260,18 +322,32 @@ class FormattedTextWidget:
 			
 			tags = self.text_widget.tag_names(sel_start)
 			
-			font_config = "Arial"
-			if "bold" in tags and "italic" in tags:
-				font_config += " bold italic"
-				tag_name = f"size{size}_bold_italic"
-			elif "bold" in tags:
-				font_config += " bold"
-				tag_name = f"size{size}_bold"
-			elif "italic" in tags:
-				font_config += " italic"
-				tag_name = f"size{size}_italic"
+			if HAS_CUSTOM_FONT:
+				font_config = "Adeliz"
+				if "bold" in tags and "italic" in tags:
+					font_config += " bold italic"
+					tag_name = f"size{size}_bold_italic"
+				elif "bold" in tags:
+					font_config += " bold"
+					tag_name = f"size{size}_bold"
+				elif "italic" in tags:
+					font_config += " italic"
+					tag_name = f"size{size}_italic"
+				else:
+					tag_name = f"size{size}_normal"
 			else:
-				tag_name = f"size{size}_normal"
+				font_config = "Arial"
+				if "bold" in tags and "italic" in tags:
+					font_config += " bold italic"
+					tag_name = f"size{size}_bold_italic"
+				elif "bold" in tags:
+					font_config += " bold"
+					tag_name = f"size{size}_bold"
+				elif "italic" in tags:
+					font_config += " italic"
+					tag_name = f"size{size}_italic"
+				else:
+					tag_name = f"size{size}_normal"
 			
 			if tag_name not in self.text_widget.tag_names():
 				self.text_widget.tag_configure(tag_name, font=(font_config, size))
@@ -357,12 +433,18 @@ class Page:
 		self.textboxes = []  # FormattedTextWidget objects
 		self.images = []     # ImageWidget objects
 		
+		# Set font for page label
+		if HAS_CUSTOM_FONT:
+			label_font = ("Adeliz", 24)
+		else:
+			label_font = ("Arial", 24)
+		
 		# Page number label (bottom corner)
 		self.page_label = ctk.CTkLabel(
 			self.frame,
 			text=f"Page {page_number + 1}",
 			text_color="#5d4037",
-			font=("Arial", 9)
+			font=label_font
 		)
 		
 		# Place label based on page side
@@ -545,14 +627,21 @@ class SoundPlayer:
 			return False
 		
 		try:
-			# Check if file exists
-			if os.path.exists(sound_path):
-				self.flip_sound = pygame.mixer.Sound(sound_path)
-				print(f"Loaded sound: {sound_path}")
-				return True
-			else:
-				print(f"Sound file not found: {sound_path}")
-				return False
+			# Try multiple locations
+			paths_to_try = [
+				sound_path,
+				resource_path(sound_path),
+				os.path.join(os.path.dirname(__file__), sound_path)
+			]
+			
+			for path in paths_to_try:
+				if os.path.exists(path):
+					self.flip_sound = pygame.mixer.Sound(path)
+					print(f"Loaded sound: {path}")
+					return True
+			
+			print(f"Sound file not found in any location")
+			return False
 		except Exception as e:
 			print(f"Failed to load sound: {e}")
 			return False
@@ -581,6 +670,12 @@ class NotebookApp:
 		self.root.geometry("800x600")
 		self.root.configure(background="#c1a273")
 		
+		# Print font status
+		if HAS_CUSTOM_FONT:
+			print(f"Using custom font: {CUSTOM_FONTS[0]}")
+		else:
+			print("Using default fonts")
+		
 		# Initialize sound player
 		self.sound_player = SoundPlayer()
 		self.sound_player.load_flip_sound("flip.mp3")
@@ -607,15 +702,7 @@ class NotebookApp:
 			border_width=0,
 			corner_radius=0
 		)
-		self.page_container.pack(fill="both", expand=True, padx=0, pady=(0, 30))
-		
-		# Navigation frame on root window
-		self.nav_frame = ctk.CTkFrame(
-			self.root,
-			fg_color="#c1a273",
-			height=30
-		)
-		self.nav_frame.place(relx=0, rely=1.0, relwidth=1.0, anchor="sw")
+		self.page_container.pack(fill="both", expand=True, padx=0, pady=0)
 		
 		# Create page corner buttons with sound player reference
 		self.prev_corner = PageCornerButton(self.root, is_previous=True, 
@@ -627,27 +714,6 @@ class NotebookApp:
 										   command=self.next_page, 
 										   sound_player=self.sound_player)
 		self.next_corner.place(relx=1.0, rely=1.0, anchor="se")
-		
-		# Hide the old navigation buttons (keep them for compatibility but make them invisible)
-		self.prev_btn = ctk.CTkButton(
-			self.nav_frame,
-			text="",
-			fg_color="#f5f5f5",
-			hover_color="#f5f5f5",
-			width=0,
-			height=0
-		)
-		self.prev_btn.pack(side="left", padx=(20, 10), pady=5)
-		
-		self.next_btn = ctk.CTkButton(
-			self.nav_frame,
-			text="",
-			fg_color="#f5f5f5",
-			hover_color="#f5f5f5",
-			width=0,
-			height=0
-		)
-		self.next_btn.pack(side="right", padx=(10, 20), pady=5)
 		
 		# Initialize pages
 		self.initialize_pages()
@@ -664,9 +730,6 @@ class NotebookApp:
 		# Create seam (must be after pages are initialized)
 		self.create_seam()
 		
-		# Lower navigation frame so seam can be above it
-		self.nav_frame.lower()
-		
 		# Sidebar for page selector
 		self.sidebar = None
 		
@@ -679,6 +742,46 @@ class NotebookApp:
 		
 		# Create sidebar
 		self.create_sidebar()
+
+	def setup_custom_font(self):
+		"""Try to install custom font system-wide"""
+		global HAS_CUSTOM_FONT
+		
+		if not HAS_CUSTOM_FONT:
+			print("No custom font files found in directory")
+			return
+		
+		# Try to install the font
+		font_file = CUSTOM_FONTS[0]  # Use the first available font
+		try:
+			# For Windows, we can try to install the font
+			import ctypes
+			from ctypes import wintypes
+			
+			# Constants for AddFontResource
+			FR_PRIVATE = 0x10
+			
+			# Load the AddFontResource function
+			gdi32 = ctypes.WinDLL('gdi32')
+			AddFontResource = gdi32.AddFontResourceW
+			AddFontResource.argtypes = [wintypes.LPCWSTR]
+			AddFontResource.restype = wintypes.INT
+			
+			# Add the font resource
+			result = AddFontResource(os.path.abspath(font_file))
+			if result > 0:
+				print(f"Successfully installed font: {font_file}")
+				# Broadcast font change notification
+				HWND_BROADCAST = 0xFFFF
+				WM_FONTCHANGE = 0x001D
+				user32 = ctypes.WinDLL('user32')
+				SendMessage = user32.SendMessageW
+				SendMessage(HWND_BROADCAST, WM_FONTCHANGE, 0, 0)
+			else:
+				print(f"Failed to install font: {font_file}")
+		except Exception as e:
+			print(f"Could not install font system-wide: {e}")
+			print("Font will be used locally within the application")
 
 	def initialize_pages(self):
 		"""Create initial pages"""
@@ -923,6 +1026,12 @@ class NotebookApp:
 		formatting_frame.pack_propagate(False)
 		formatting_frame.place_forget()
 		
+		# Set font for toolbar buttons
+		if HAS_CUSTOM_FONT:
+			toolbar_font = ("Adeliz", 24)
+		else:
+			toolbar_font = ("Arial", 24)
+		
 		# Bold button
 		bold_btn = ctk.CTkButton(
 			formatting_frame,
@@ -932,7 +1041,7 @@ class NotebookApp:
 			fg_color="#e0d0b0",
 			hover_color="#d0c0a0",
 			text_color="#3d2c1e",
-			font=("Arial", 11, "bold"),
+			font=(toolbar_font[0], toolbar_font[1], "bold"),
 			corner_radius=2,
 			command=text_widget.toggle_bold
 		)
@@ -947,14 +1056,14 @@ class NotebookApp:
 			fg_color="#e0d0b0",
 			hover_color="#d0c0a0",
 			text_color="#3d2c1e",
-			font=("Arial", 11, "italic"),
+			font=(toolbar_font[0], toolbar_font[1], "italic"),
 			corner_radius=2,
 			command=text_widget.toggle_italic
 		)
 		italic_btn.pack(side="left", padx=2, pady=5)
 		
 		# Font size dropdown
-		font_sizes = ["8", "10", "11", "12", "14", "16", "18", "20", "24"]
+		font_sizes = ["8", "10", "11", "12", "14", "16", "18", "20", "24", "32", "45"]
 		font_size_var = ctk.StringVar(value="11")
 		
 		font_size_menu = ctk.CTkOptionMenu(
@@ -967,7 +1076,7 @@ class NotebookApp:
 			button_color="#d0c0a0",
 			button_hover_color="#c0b090",
 			text_color="#3d2c1e",
-			font=("Arial", 10),
+			font=(toolbar_font[0], 10),
 			corner_radius=2,
 			command=lambda size: text_widget.change_font_size(size)
 		)
@@ -1081,6 +1190,12 @@ class NotebookApp:
 		canvas.bind("<Button-1>", self.toggle_sidebar)
 		menu_frame.bind("<Button-1>", self.toggle_sidebar)
 		
+		# Set font for top bar buttons
+		if HAS_CUSTOM_FONT:
+			topbar_font = ("Adeliz", 24)
+		else:
+			topbar_font = ("Segoe UI", 24)
+		
 		# File button with image import option
 		file_btn = ctk.CTkButton(
 			self.top_bar,
@@ -1088,7 +1203,7 @@ class NotebookApp:
 			fg_color="transparent",
 			hover_color="#e0d0b0",
 			text_color="#5d4037",
-			font=("Segoe UI", 11),
+			font=topbar_font,
 			width=100,
 			height=25,
 			corner_radius=3,
@@ -1105,7 +1220,7 @@ class NotebookApp:
 			fg_color="transparent",
 			hover_color="#e0d0b0",
 			text_color="#5d4037",
-			font=("Segoe UI", 11),
+			font=topbar_font,
 			width=80,
 			height=25,
 			corner_radius=3,
@@ -1122,7 +1237,7 @@ class NotebookApp:
 			fg_color="transparent",
 			hover_color="#e0d0b0",
 			text_color="#5d4037",
-			font=("Segoe UI", 11),
+			font=topbar_font,
 			width=60,
 			height=25,
 			corner_radius=3,
@@ -1171,11 +1286,19 @@ class NotebookApp:
 		self.sidebar.pack_propagate(False)
 		self.sidebar.place(x=-200, y=0, relheight=1.0)
 		
+		# Set font for sidebar
+		if HAS_CUSTOM_FONT:
+			sidebar_font = ("Adeliz", 24, "bold")
+			page_list_font = ("Adeliz", 24)
+		else:
+			sidebar_font = ("Segoe UI", 24, "bold")
+			page_list_font = ("Segoe UI", 24)
+		
 		# Sidebar header
 		sidebar_header = ctk.CTkLabel(
 			self.sidebar,
 			text="Pages",
-			font=("Segoe UI", 14, "bold"),
+			font=sidebar_font,
 			text_color="#3d2c1e",
 			height=40
 		)
@@ -1198,6 +1321,12 @@ class NotebookApp:
 		for widget in self.page_list.winfo_children():
 			widget.destroy()
 		
+		# Set font for page buttons
+		if HAS_CUSTOM_FONT:
+			page_btn_font = ("Adeliz", 11)
+		else:
+			page_btn_font = ("Segoe UI", 11)
+		
 		# Add page buttons
 		for i, page in enumerate(self.pages):
 			page_btn = ctk.CTkButton(
@@ -1206,7 +1335,7 @@ class NotebookApp:
 				fg_color="#e0d0b0",
 				hover_color="#d0c0a0",
 				text_color="#3d2c1e",
-				font=("Segoe UI", 11),
+				font=page_btn_font,
 				height=30,
 				command=lambda idx=i: self.go_to_page(idx)
 			)
