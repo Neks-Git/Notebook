@@ -114,18 +114,7 @@ class FormattedTextWidget:
         # Store all created tags for serialization
         self.created_tags = set()
         
-        # Configure text tags for formatting
-        if HAS_CUSTOM_FONT:
-            # For custom font, we'll use normal font and simulate bold/italic
-            self.text_widget.tag_configure("bold", font=(text_font if isinstance(text_font, str) else "Adeliz", 11, "bold"))
-            self.text_widget.tag_configure("italic", font=(text_font if isinstance(text_font, str) else "Adeliz", 11, "italic"))
-            self.text_widget.tag_configure("bolditalic", font=(text_font if isinstance(text_font, str) else "Adeliz", 11, "bold italic"))
-            self.created_tags.update(["bold", "italic", "bolditalic"])
-        else:
-            self.text_widget.tag_configure("bold", font=("Arial", 11, "bold"))
-            self.text_widget.tag_configure("italic", font=("Arial", 11, "italic"))
-            self.text_widget.tag_configure("bolditalic", font=("Arial", 11, "bold italic"))
-            self.created_tags.update(["bold", "italic", "bolditalic"])
+
         
         # Store position and size
         self.is_dragging = False
@@ -221,6 +210,32 @@ class FormattedTextWidget:
         self.frame.bind("<Leave>", self.hide_handles)
         self.text_widget.bind("<Enter>", self.show_handles)
         self.text_widget.bind("<Leave>", self.hide_handles)
+        
+        # NEW: Bind focus events directly to the text widget
+        self.text_widget.bind("<FocusIn>", self.on_focus_in)
+        self.text_widget.bind("<FocusOut>", self.on_focus_out)
+        
+        # NEW: Clear placeholder on first click
+        self.text_widget.bind("<Button-1>", self.clear_placeholder_on_first_click, add="+")
+        
+        # NEW: Track text selection
+        self.text_widget.bind("<Button-1>", self.handle_text_selection, add="+")
+
+    def clear_placeholder_on_first_click(self, event):
+        """Clear placeholder text on first click"""
+        if self.get_text() == "Click to edit...":
+            self.set_text("")
+            # Ensure cursor is at the beginning - use mark_set for Text widget
+            self.text_widget.mark_set("insert", "1.0")
+            self.text_widget.focus_set()
+
+    def handle_text_selection(self, event):
+        """Handle text selection - let tkinter handle it normally"""
+        # Don't start drag when clicking in text widget
+        self.is_dragging = False
+        # Focus the text widget
+        self.text_widget.focus_set()
+        return "continue"  # Let tkinter continue with normal text selection
         
     def on_text_click(self, event):
         """Handle click inside text widget - only for text selection"""
@@ -505,9 +520,6 @@ class FormattedTextWidget:
             if tag_name.startswith("size"):
                 # Font size tag like "size24_bold"
                 self._create_font_size_tag(tag_name)
-            elif tag_name in ["bold", "italic", "bolditalic"]:
-                # Basic formatting tags
-                self._create_basic_tag(tag_name)
             else:
                 # Unknown tag, create with defaults
                 self.text_widget.tag_configure(tag_name, font=("Arial", 11))
@@ -515,111 +527,33 @@ class FormattedTextWidget:
             self.created_tags.add(tag_name)
 
     def _create_font_size_tag(self, tag_name):
-        """Create a font size tag from its name"""
+        """Create a font size tag from its name - ONLY NORMAL STYLE"""
         try:
             parts = tag_name.split("_")
             size_str = parts[0][4:]  # Remove "size"
             size = int(size_str)
             
-            # Determine font family
+            # Determine font family - ALWAYS NORMAL STYLE
             font_family = "Adeliz" if HAS_CUSTOM_FONT else "Arial"
             
-            # Determine style
-            style = "normal"
-            if len(parts) > 1:
-                if "bold" in parts and "italic" in parts:
-                    style = "bold italic"
-                elif "bold" in parts:
-                    style = "bold"
-                elif "italic" in parts:
-                    style = "italic"
-            
-            # Create the tag
-            if style == "normal":
-                self.text_widget.tag_configure(tag_name, font=(font_family, size))
-            else:
-                self.text_widget.tag_configure(tag_name, font=(font_family, size, style))
+            # Create the tag with normal style only
+            self.text_widget.tag_configure(tag_name, font=(font_family, size))
                 
         except (ValueError, IndexError):
             # Fallback to default
             self.text_widget.tag_configure(tag_name, font=("Arial", 11))
 
-    def _create_basic_tag(self, tag_name):
-        """Create basic formatting tags (bold, italic, bolditalic)"""
-        try:
-            if tag_name == "bold":
-                if HAS_CUSTOM_FONT:
-                    self.text_widget.tag_configure(tag_name, font=("Adeliz", 11, "bold"))
-                else:
-                    self.text_widget.tag_configure(tag_name, font=("Arial", 11, "bold"))
-            elif tag_name == "italic":
-                if HAS_CUSTOM_FONT:
-                    self.text_widget.tag_configure(tag_name, font=("Adeliz", 11, "italic"))
-                else:
-                    self.text_widget.tag_configure(tag_name, font=("Arial", 11, "italic"))
-            elif tag_name == "bolditalic":
-                if HAS_CUSTOM_FONT:
-                    self.text_widget.tag_configure(tag_name, font=("Adeliz", 11, "bold italic"))
-                else:
-                    self.text_widget.tag_configure(tag_name, font=("Arial", 11, "bold italic"))
-        except Exception as e:
-            print(f"Warning: Could not create basic tag {tag_name}: {e}")
+
 
     
-    def toggle_bold(self):
-        """Toggle bold formatting for selected text"""
-        try:
-            sel_start = self.text_widget.index("sel.first")
-            sel_end = self.text_widget.index("sel.last")
-            
-            tags = self.text_widget.tag_names(sel_start)
-            
-            if "bold" in tags or "bolditalic" in tags:
-                self.text_widget.tag_remove("bold", sel_start, sel_end)
-                self.text_widget.tag_remove("bolditalic", sel_start, sel_end)
-                if "bolditalic" in tags:
-                    self.text_widget.tag_add("italic", sel_start, sel_end)
-            else:
-                if "italic" in tags:
-                    self.text_widget.tag_remove("italic", sel_start, sel_end)
-                    self.text_widget.tag_add("bolditalic", sel_start, sel_end)
-                else:
-                    self.text_widget.tag_add("bold", sel_start, sel_end)
-                    
-        except tk.TclError:
-            pass
-            
-    def toggle_italic(self):
-        """Toggle italic formatting for selected text"""
-        try:
-            sel_start = self.text_widget.index("sel.first")
-            sel_end = self.text_widget.index("sel.last")
-            
-            tags = self.text_widget.tag_names(sel_start)
-            
-            if "italic" in tags or "bolditalic" in tags:
-                self.text_widget.tag_remove("italic", sel_start, sel_end)
-                self.text_widget.tag_remove("bolditalic", sel_start, sel_end)
-                if "bolditalic" in tags:
-                    self.text_widget.tag_add("bold", sel_start, sel_end)
-            else:
-                if "bold" in tags:
-                    self.text_widget.tag_remove("bold", sel_start, sel_end)
-                    self.text_widget.tag_add("bolditalic", sel_start, sel_end)
-                else:
-                    self.text_widget.tag_add("italic", sel_start, sel_end)
-                    
-        except tk.TclError:
-            pass
+
             
     def change_font_size(self, size):
-        """Change font size for selected text"""
+        """Change font size for selected text - WITHOUT BOLD/ITALIC"""
         try:
             size = int(size)
             sel_start = self.text_widget.index("sel.first")
             sel_end = self.text_widget.index("sel.last")
-            
-            tags = self.text_widget.tag_names(sel_start)
             
             # Determine font family
             if HAS_CUSTOM_FONT:
@@ -627,24 +561,8 @@ class FormattedTextWidget:
             else:
                 font_family = "Arial"
             
-            # Determine style
-            style = ""
-            if "bold" in tags and "italic" in tags:
-                style = "bold_italic"
-                font_config = f"{font_family} bold italic"
-                tag_name = f"size{size}_bold_italic"
-            elif "bold" in tags:
-                style = "bold"
-                font_config = f"{font_family} bold"
-                tag_name = f"size{size}_bold"
-            elif "italic" in tags:
-                style = "italic"
-                font_config = f"{font_family} italic"
-                tag_name = f"size{size}_italic"
-            else:
-                style = "normal"
-                font_config = font_family
-                tag_name = f"size{size}_normal"
+            # Always use normal style (no bold/italic)
+            tag_name = f"size{size}_normal"
             
             # Remove existing font size tags (if any)
             for tag in list(self.created_tags):
@@ -653,10 +571,7 @@ class FormattedTextWidget:
             
             # Create the tag if it doesn't exist
             if tag_name not in self.text_widget.tag_names():
-                if style == "normal":
-                    self.text_widget.tag_configure(tag_name, font=(font_family, size))
-                else:
-                    self.text_widget.tag_configure(tag_name, font=(font_config, size))
+                self.text_widget.tag_configure(tag_name, font=(font_family, size))
                 self.created_tags.add(tag_name)
             
             # Apply the tag
@@ -695,70 +610,286 @@ class FormattedTextWidget:
 
 
 class ImageWidget:
-    """Canvas-based image that supports floating over text (no resize)"""
+    """Canvas-based image that supports floating over text WITH RESIZE (locked aspect ratio)"""
     def __init__(self, canvas, x, y, image_path, widget_id=None, width=None, height=None):
         self.canvas = canvas
         self.x = x
         self.y = y
         self.image_path = image_path
-        self.widget_id = widget_id or str(uuid.uuid4())  # Use UUID for permanent IDs
+        self.widget_id = widget_id or str(uuid.uuid4())
         self.is_dragging = False
-
+        self.is_resizing = False
+        self.has_focus = False
+        self.parent_page = None
+        
         # Load image
         self.original_image = Image.open(image_path)
+        self.original_width, self.original_height = self.original_image.size
         
-        # Use provided dimensions or original size
+        # Store original aspect ratio
+        self.aspect_ratio = self.original_height / self.original_width
+        
+        # Use provided dimensions or calculate scaled size
         if width is not None and height is not None:
             self.width = width
             self.height = height
-            # Resize if dimensions are different
-            if self.original_image.size != (width, height):
-                self.original_image = self.original_image.resize((width, height), Image.Resampling.LANCZOS)
+            # Ensure aspect ratio matches if both dimensions provided
+            if abs((height / width) - self.aspect_ratio) > 0.01:  # Allow small floating point differences
+                # Recalculate height based on width to maintain aspect ratio
+                self.height = int(width * self.aspect_ratio)
         else:
-            self.width, self.height = self.original_image.size
-            # Limit maximum size
-            max_size = 300
-            if self.width > max_size or self.height > max_size:
-                ratio = min(max_size / self.width, max_size / self.height)
-                self.width = int(self.width * ratio)
-                self.height = int(self.height * ratio)
-                self.original_image = self.original_image.resize((self.width, self.height), Image.Resampling.LANCZOS)
-
-        self.tk_image = ImageTk.PhotoImage(self.original_image)
+            # Default scaling: 40% of canvas width, maintain aspect ratio
+            canvas_width = self.canvas.winfo_width() if self.canvas.winfo_exists() else 800
+            max_width = int(canvas_width * 0.4)
+            
+            # Calculate height to maintain aspect ratio
+            self.width = min(self.original_width, max_width)
+            self.height = int(self.width * self.aspect_ratio)
+            
+            # Also limit height (60% of canvas height)
+            max_height = int(canvas_width * 0.6)  # canvas is square-ish
+            if self.height > max_height:
+                self.height = max_height
+                self.width = int(self.height / self.aspect_ratio)
+        
+        # Minimum size
+        self.min_width = 50
+        self.min_height = int(self.min_width * self.aspect_ratio)
+        
+        # Resize image for display
+        if (self.width, self.height) != (self.original_width, self.original_height):
+            self.display_image = self.original_image.resize((self.width, self.height), Image.Resampling.LANCZOS)
+        else:
+            self.display_image = self.original_image.copy()
+        
+        self.tk_image = ImageTk.PhotoImage(self.display_image)
         self.image_id = self.canvas.create_image(x, y, image=self.tk_image, anchor="nw")
-
-        # Bind image for dragging and deletion
-        self.canvas.tag_bind(self.image_id, "<Button-1>", self.start_drag)
+        
+        # Create selection border (invisible until selected)
+        self.border_id = self.canvas.create_rectangle(
+            x, y, x + self.width, y + self.height,
+            outline="",  # Empty by default
+            width=2,
+            tags="border"
+        )
+        
+        # Create resize handle (bottom-right corner)
+        self.resize_handle_size = 12
+        self.resize_handle_id = self.canvas.create_oval(
+            x + self.width - self.resize_handle_size,
+            y + self.height - self.resize_handle_size,
+            x + self.width,
+            y + self.height,
+            fill="",  # Empty by default
+            outline="",
+            tags="resize_handle"
+        )
+        
+        # Bind events
+        self.setup_event_bindings()
+        
+    def setup_event_bindings(self):
+        """Setup event bindings for the image"""
+        # Click on image to select/focus
+        self.canvas.tag_bind(self.image_id, "<Button-1>", self.on_image_click)
+        self.canvas.tag_bind(self.border_id, "<Button-1>", self.on_image_click)
+        
+        # Drag image
         self.canvas.tag_bind(self.image_id, "<B1-Motion>", self.do_drag)
         self.canvas.tag_bind(self.image_id, "<ButtonRelease-1>", self.stop_drag)
+        
+        # Resize handle events
+        self.canvas.tag_bind(self.resize_handle_id, "<Button-1>", self.start_resize)
+        self.canvas.tag_bind(self.resize_handle_id, "<B1-Motion>", self.do_resize)
+        self.canvas.tag_bind(self.resize_handle_id, "<ButtonRelease-1>", self.stop_resize)
+        
+        # Right-click to delete
         self.canvas.tag_bind(self.image_id, "<Button-3>", self.delete)
-
+        self.canvas.tag_bind(self.border_id, "<Button-3>", self.delete)
+        self.canvas.tag_bind(self.resize_handle_id, "<Button-3>", self.delete)
+        
+        # Change cursor when over resize handle
+        self.canvas.tag_bind(self.resize_handle_id, "<Enter>", 
+                           lambda e: self.canvas.configure(cursor="sizing"))
+        self.canvas.tag_bind(self.resize_handle_id, "<Leave>", 
+                           lambda e: self.canvas.configure(cursor=""))
+        
+        # Show resize handle on hover when image is focused
+        self.canvas.tag_bind(self.image_id, "<Enter>", self.show_handles_on_hover)
+        self.canvas.tag_bind(self.image_id, "<Leave>", self.hide_handles_on_hover)
+    
+    def show_handles_on_hover(self, event=None):
+        """Show resize handle when hovering over image (if focused)"""
+        if self.has_focus:
+            self.canvas.itemconfig(self.resize_handle_id, fill="#5d4037", outline="#3d2c1e")
+    
+    def hide_handles_on_hover(self, event=None):
+        """Hide resize handle when not hovering (if not focused)"""
+        if not self.has_focus:
+            self.canvas.itemconfig(self.resize_handle_id, fill="", outline="")
+    def on_image_click(self, event):
+        """Handle click on image - select it"""
+        # If another image is focused, unfocus it first
+        if hasattr(self.canvas, 'focused_image') and self.canvas.focused_image:
+            if self.canvas.focused_image != self:
+                self.canvas.focused_image.unfocus()
+        
+        self.focus()
+        self.start_drag(event)
+    
+    def focus(self):
+        """Focus on this image widget"""
+        # Remove focus from other images
+        if hasattr(self.canvas, 'focused_image') and self.canvas.focused_image:
+            self.canvas.focused_image.unfocus()
+        
+        # Focus this image
+        self.has_focus = True
+        self.canvas.focused_image = self
+        
+        # Show border and resize handle
+        self.canvas.itemconfig(self.border_id, outline="#5d4037", fill="")
+        self.canvas.itemconfig(self.resize_handle_id, fill="#5d4037", outline="#3d2c1e")
+        
+        # Raise above other canvas items
+        self.canvas.tag_raise(self.image_id)
+        self.canvas.tag_raise(self.border_id)
+        self.canvas.tag_raise(self.resize_handle_id)
+    
+    def unfocus(self):
+        """Remove focus from this image"""
+        self.has_focus = False
+        self.canvas.itemconfig(self.border_id, outline="", fill="")
+        self.canvas.itemconfig(self.resize_handle_id, fill="", outline="")
+    
     def start_drag(self, event):
+        """Start dragging the image"""
+        if not self.has_focus:
+            self.focus()
+        
         self.is_dragging = True
+        self.is_resizing = False
         self.drag_start_x = event.x
         self.drag_start_y = event.y
-
+        
+        # Change cursor
+        self.canvas.configure(cursor="fleur" if sys.platform != "darwin" else "hand2")
+    
     def do_drag(self, event):
+        """Drag the image"""
         if not self.is_dragging:
             return
+        
         dx = event.x - self.drag_start_x
         dy = event.y - self.drag_start_y
+        
+        # Move all image components
         self.canvas.move(self.image_id, dx, dy)
+        self.canvas.move(self.border_id, dx, dy)
+        self.canvas.move(self.resize_handle_id, dx, dy)
         
         # Update position
-        bbox = self.canvas.bbox(self.image_id)
-        if bbox:
-            self.x = bbox[0]
-            self.y = bbox[1]
+        self.x += dx
+        self.y += dy
         
         self.drag_start_x = event.x
         self.drag_start_y = event.y
-
+    
     def stop_drag(self, event):
+        """Stop dragging"""
         self.is_dragging = False
-
+        self.canvas.configure(cursor="")
+    
+    def start_resize(self, event):
+        """Start resizing the image"""
+        if not self.has_focus:
+            self.focus()
+        
+        self.is_resizing = True
+        self.is_dragging = False
+        self.resize_start_x = event.x
+        self.resize_start_y = event.y
+        self.resize_start_width = self.width
+        self.resize_start_height = self.height
+    
+    def do_resize(self, event):
+        """Resize the image - ALWAYS MAINTAIN ASPECT RATIO"""
+        if not self.is_resizing:
+            return
+        
+        dx = event.x - self.resize_start_x
+        dy = event.y - self.resize_start_y
+        
+        # Calculate new width based on mouse movement
+        # Use the larger of dx or dy to determine scale (so diagonal dragging works)
+        if abs(dx) > abs(dy):
+            # Scale based on width change
+            new_width = max(self.min_width, self.resize_start_width + dx)
+            new_height = int(new_width * self.aspect_ratio)
+        else:
+            # Scale based on height change
+            new_height = max(self.min_height, self.resize_start_height + dy)
+            new_width = int(new_height / self.aspect_ratio)
+        
+        # Ensure minimum size in both dimensions
+        if new_width < self.min_width:
+            new_width = self.min_width
+            new_height = int(new_width * self.aspect_ratio)
+        elif new_height < self.min_height:
+            new_height = self.min_height
+            new_width = int(new_height / self.aspect_ratio)
+        
+        # Only resize if dimensions changed
+        if new_width != self.width or new_height != self.height:
+            self.width = new_width
+            self.height = new_height
+            
+            # Resize the image
+            self.display_image = self.original_image.resize(
+                (self.width, self.height), 
+                Image.Resampling.LANCZOS
+            )
+            
+            # Update tkinter image
+            self.tk_image = ImageTk.PhotoImage(self.display_image)
+            self.canvas.itemconfig(self.image_id, image=self.tk_image)
+            
+            # Update border and resize handle positions
+            self.canvas.coords(
+                self.border_id,
+                self.x, self.y,
+                self.x + self.width, self.y + self.height
+            )
+            
+            self.canvas.coords(
+                self.resize_handle_id,
+                self.x + self.width - self.resize_handle_size,
+                self.y + self.height - self.resize_handle_size,
+                self.x + self.width,
+                self.y + self.height
+            )
+    
+    def stop_resize(self, event):
+        """Stop resizing"""
+        self.is_resizing = False
+        self.canvas.configure(cursor="")
+    
     def delete(self, event=None):
+        """Delete the image"""
+        # Remove from parent page's images list
+        if self.parent_page and self in self.parent_page.images:
+            self.parent_page.images.remove(self)
+        
+        # Then delete from canvas
         self.canvas.delete(self.image_id)
+        self.canvas.delete(self.border_id)
+        self.canvas.delete(self.resize_handle_id)
+        
+        # Clean up resources
+        self.original_image.close()
+        if hasattr(self, 'display_image'):
+            self.display_image.close()
+        del self.tk_image
 
     def serialize(self):
         """Serialize image data for saving"""
@@ -772,7 +903,6 @@ class ImageWidget:
             "image_path": self.image_path,
             "properties": {}
         }
-
 
 # Page class
 class Page:
@@ -794,10 +924,11 @@ class Page:
         # Canvas for drawing selection boxes and images
         self.canvas = tk.Canvas(
             self.frame,
-            bg="#c1a273",
             highlightthickness=0
         )
         self.canvas.place(relx=0, rely=0, relwidth=1, relheight=1)
+        ##self.try_load_background()
+        self.canvas.configure(bg="#c1a273")
         
         # Store widgets on this page
         self.textboxes = []  # FormattedTextWidget objects
@@ -831,6 +962,8 @@ class Page:
     def add_image(self, x, y, image_path, widget_id=None, width=None, height=None):
         """Add an image to this page"""
         image_widget = ImageWidget(self.canvas, x, y, image_path, widget_id=widget_id, width=width, height=height)
+        # Set the parent page reference
+        image_widget.parent_page = self
         self.images.append(image_widget)
         return image_widget
     
@@ -850,7 +983,89 @@ class Page:
             if hasattr(image, 'tk_image'):
                 del image.tk_image
         self.images.clear()
-    
+    def try_load_background(self):
+        """Try to load background.png as page background"""
+        bg_paths = [
+            "background.png",  # Current dir
+            os.path.join(os.path.dirname(__file__), "background.png"),  # App dir
+        ]
+        
+        # Also check notebook directory if we have a current file
+        app = self.get_app()
+        if app and hasattr(app, 'current_file') and app.current_file:
+            notebook_dir = os.path.dirname(app.current_file)
+            bg_paths.insert(0, os.path.join(notebook_dir, "background.png"))
+        
+        for bg_path in bg_paths:
+            if os.path.exists(bg_path):
+                try:
+                    self.bg_image = Image.open(bg_path)
+                    # Schedule background application after canvas is sized
+                    self.canvas.after(100, self.apply_background)
+                    break
+                except:
+                    continue
+        
+        # If no image found, use default color
+        if not hasattr(self, 'bg_image') or self.bg_image is None:
+            self.canvas.configure(bg="#c1a273")
+
+    def get_app(self):
+        """Get reference to main app instance"""
+        parent = self.parent
+        while parent and not hasattr(parent, 'current_file'):
+            parent = parent.master
+        return parent
+
+    def apply_background(self):
+        """Apply the background image - handles 2-page spreads!"""
+        if not hasattr(self, 'bg_image'):
+            return
+        
+        try:
+            # Get canvas size
+            width = self.canvas.winfo_width()
+            height = self.canvas.winfo_height()
+            
+            # If canvas isn't ready yet, try again
+            if width < 10 or height < 10:
+                self.canvas.after(100, self.apply_background)
+                return
+            
+            # Check if this is a 2-page spread background
+            bg_width, bg_height = self.bg_image.size
+            
+            if bg_width >= 1920 and bg_height >= 1080:
+                # This looks like a full-window background!
+                # Calculate which half to show based on page position
+                
+                if self.is_left_page:
+                    # Left page: show left half of image
+                    crop_box = (0, 0, bg_width // 2, bg_height)
+                else:
+                    # Right page: show right half of image
+                    crop_box = (bg_width // 2, 0, bg_width, bg_height)
+                
+                # Crop and resize
+                cropped = self.bg_image.crop(crop_box)
+                resized = cropped.resize((width, height), Image.Resampling.LANCZOS)
+            else:
+                # Normal single-page background - just resize
+                resized = self.bg_image.resize((width, height), Image.Resampling.LANCZOS)
+            
+            self.bg_photo = ImageTk.PhotoImage(resized)
+            
+            # Create or update background
+            if hasattr(self, 'bg_id'):
+                self.canvas.itemconfig(self.bg_id, image=self.bg_photo)
+            else:
+                self.bg_id = self.canvas.create_image(0, 0, image=self.bg_photo, anchor="nw")
+                self.canvas.tag_lower(self.bg_id)
+                
+        except Exception as e:
+            print(f"Failed to apply background: {e}")
+            # Fallback to color
+            self.canvas.configure(bg="#c1a273")
     def serialize(self):
         """Serialize page data for saving"""
         return {
@@ -939,6 +1154,9 @@ class Page:
                 width=image_data["width"],
                 height=image_data["height"]
             )
+            
+            # IMPORTANT: Set the parent_page reference
+            image_widget.parent_page = self
 
 
 # PageCornerButton and SoundPlayer classes remain the same...
@@ -1120,7 +1338,7 @@ class NotebookApp:
 
         # Set max size to 1920x1080
         self.root.maxsize(1920, 1080)
-        self.root.geometry("800x600")
+        self.root.state('zoomed')
         self.root.configure(background="#c1a273")
         
         # Save/Load state
@@ -1151,7 +1369,9 @@ class NotebookApp:
         self.pages = []  # List of Page objects
         self.current_left_page_index = 0
         self.current_right_page_index = 1
-        
+        # Add focus mode state
+        self.focus_mode = False  # False = normal two-page view, True = single page focused
+        self.focused_page_index = None  # Which page is currently focused        
         # Main page container
         self.page_container = ctk.CTkFrame(
             self.root,
@@ -1175,13 +1395,14 @@ class NotebookApp:
         # Create top bar FIRST
         self.create_top_bar()
         self.top_bar.place_forget()
-        
+        self.setup_keyboard_shortcuts()
         # Initialize pages AFTER creating top bar
         self.initialize_pages()
         
         # Bind text box creation events
         self.setup_textbox_creation()
-        
+        # NEW: Setup global click handler
+        self.setup_global_click_handler()
         # Setup image drag and drop
         self.setup_image_drag_drop()
         
@@ -1195,7 +1416,7 @@ class NotebookApp:
         self.sidebar = None
         
         # Bind mouse movement to show/hide bar
-        self.root.bind("<Motion>", self.check_mouse_position)
+        self.setup_top_bar_behavior()
         
         # Create sidebar
         self.create_sidebar()
@@ -1251,7 +1472,29 @@ class NotebookApp:
         # Clean up resources
         self.cleanup_resources()
         self.root.destroy()
-
+    def setup_top_bar_behavior(self):
+        """Setup top bar show/hide behavior"""
+        # Remove the existing motion binding
+        self.root.unbind("<Motion>")
+        
+        # New approach: Show top bar when mouse is at top, hide when mouse moves down
+        def check_mouse_for_top_bar(event):
+            # Always show if mouse is at very top (15 pixels)
+            if event.y < 15:
+                if not self.top_bar_visible:
+                    self.show_top_bar()
+            # Hide if mouse is below 70 pixels AND top bar is visible
+            elif self.top_bar_visible and event.y > 70:
+                # But only hide if not over sidebar
+                if not (self.sidebar_visible and event.x < 250):
+                    self.hide_top_bar()
+        
+        # Bind to root window (catches ALL mouse movements)
+        self.root.bind("<Motion>", check_mouse_for_top_bar)
+        
+        # Also bind to all canvases to ensure events bubble up
+        for page in self.pages:
+            page.canvas.bind("<Motion>", check_mouse_for_top_bar)
     def cleanup_resources(self):
         """Clean up resources before closing"""
         try:
@@ -1326,6 +1569,28 @@ class NotebookApp:
         self.update_navigation()
         # Update top bar with initial page names
         self.update_top_bar_page_name()
+    def setup_font_size_scroll(self, text_widget, display_widget):
+        """Setup mouse wheel scrolling for font size"""
+        # Store references
+        self.current_text_widget_for_scroll = text_widget
+        self.current_font_size_display = display_widget
+        
+        # Bind mouse wheel events
+        display_widget.bind("<MouseWheel>", self.on_font_size_scroll)
+        display_widget.bind("<Button-4>", self.on_font_size_scroll)  # Linux up
+        display_widget.bind("<Button-5>", self.on_font_size_scroll)  # Linux down
+        
+        # Change cursor to indicate scrollability
+        display_widget.configure(cursor="sb_v_double_arrow")
+
+    def cleanup_font_size_scroll(self):
+        """Clean up mouse wheel bindings"""
+        if hasattr(self, 'current_font_size_display') and self.current_font_size_display:
+            self.current_font_size_display.unbind("<MouseWheel>")
+            self.current_font_size_display.unbind("<Button-4>")
+            self.current_font_size_display.unbind("<Button-5>")
+            self.current_font_size_display.configure(cursor="")
+
 
     def create_seam(self):
         """Create a simple, efficient seam that stays within the app"""
@@ -1394,7 +1659,49 @@ class NotebookApp:
         """Set up event bindings for creating text boxes"""
         # We'll bind to the current page canvases dynamically
         pass
-    
+
+    def setup_global_click_handler(self):
+        """Setup a global click handler for the entire app"""
+        # Bind to root window for clicks outside text widgets
+        self.root.bind("<Button-1>", self.handle_global_click)
+
+    def handle_global_click(self, event):
+        """Handle clicks anywhere in the application"""
+        # Get the widget that was clicked
+        clicked_widget = event.widget
+        
+        # Check if click was on a text widget or its components
+        is_text_component = False
+        
+        for page in self.pages:
+            for textbox in page.textboxes:
+                # Check all components of the textbox
+                components = [
+                    textbox.text_widget,
+                    textbox.frame,
+                    textbox.handles_frame if hasattr(textbox, 'handles_frame') else None,
+                    textbox.move_handle if hasattr(textbox, 'move_handle') else None,
+                    textbox.resize_handle if hasattr(textbox, 'resize_handle') else None
+                ]
+                
+                for component in components:
+                    if component and clicked_widget == component:
+                        is_text_component = True
+                        break
+                
+                if is_text_component:
+                    break
+            
+            if is_text_component:
+                break
+        
+        # If click was NOT on a text component, remove focus from all textboxes
+        if not is_text_component:
+            self.remove_textbox_focus(event)
+        
+        # Check for sidebar clicks
+        self.check_click_outside_sidebar(event)
+        
     def get_current_left_page(self):
         """Get the current left page object"""
         if self.current_left_page_index < len(self.pages):
@@ -1407,9 +1714,9 @@ class NotebookApp:
             return self.pages[self.current_right_page_index]
         return None
     
-    def create_text_widget(self, page, x, y, text=""):
+    def create_text_widget(self, page, x, y, text="", width=200, height=100):
         """Create a text widget on a specific page"""
-        text_widget = page.add_textbox(x, y, 200, 100)
+        text_widget = page.add_textbox(x, y, width, height)
         if text:
             text_widget.set_text(text)
         
@@ -1459,7 +1766,90 @@ class NotebookApp:
         
         self.set_modified(True)
         return text_widget
+    def on_font_size_scroll(self, event, text_widget):
+        """Handle mouse wheel scrolling for font size"""
+        # Determine scroll direction
+        if event.num == 4 or (hasattr(event, 'delta') and event.delta > 0):  # Scroll up
+            delta = 1
+        elif event.num == 5 or (hasattr(event, 'delta') and event.delta < 0):  # Scroll down
+            delta = -1
+        else:
+            return
+        
+        # Get current font size
+        try:
+            current_size = int(self.font_size_var.get())
+        except:
+            current_size = 45
+        
+        # Calculate new size (1-100 range)
+        new_size = current_size + delta
+        new_size = max(1, min(100, new_size))
+        
+        # Update display
+        self.font_size_var.set(str(new_size))
+        
+        # Check if text is selected
+        try:
+            sel_start = text_widget.text_widget.index("sel.first")
+            sel_end = text_widget.text_widget.index("sel.last")
+            has_selection = True
+        except tk.TclError:
+            has_selection = False
+        
+        if has_selection:
+            # Apply to selected text
+            text_widget.change_font_size(new_size)
+            self.set_modified(True)
+        else:
+            # No selection - set as default for new text
+            if hasattr(text_widget, 'default_font_size'):
+                text_widget.default_font_size = new_size
+        
+        # Visual feedback on the display
+        original_color = text_widget.font_size_display.cget("fg_color")
+        text_widget.font_size_display.configure(fg_color="#d0c0a0")  # Highlight
+        text_widget.font_size_display.after(100, lambda: text_widget.font_size_display.configure(fg_color=original_color))
+        
+        return "break"
     
+    def reset_font_size(self, text_widget):
+        """Reset font size to default (11)"""
+        DEFAULT_SIZE = 45
+        
+        # Update the display
+        self.font_size_var.set(str(DEFAULT_SIZE))
+        
+        # Check if text is selected
+        try:
+            sel_start = text_widget.text_widget.index("sel.first")
+            sel_end = text_widget.text_widget.index("sel.last")
+            has_selection = True
+        except tk.TclError:
+            has_selection = False
+        
+        if has_selection:
+            # Apply reset to selected text only
+            text_widget.change_font_size(DEFAULT_SIZE)
+        else:
+            # No selection - reset ALL text in the widget
+            # Remove all font size tags
+            for tag in list(text_widget.created_tags):
+                if tag.startswith("size"):
+                    text_widget.text_widget.tag_remove(tag, "1.0", "end")
+            
+            # Apply default size to entire widget
+            text_widget.change_font_size(DEFAULT_SIZE)
+        
+        self.set_modified(True)
+        
+        # Visual feedback
+        original_color = text_widget.reset_button.cget("fg_color")
+        text_widget.reset_button.configure(fg_color="#3d2c1e", text_color="#f5e8c8")
+        text_widget.reset_button.after(200, lambda: text_widget.reset_button.configure(
+            fg_color=original_color, 
+            text_color="#3d2c1e"
+        ))
     def setup_page_canvas_events(self, page):
         """Setup event bindings for a page's canvas"""
         canvas = page.canvas
@@ -1474,8 +1864,36 @@ class NotebookApp:
         canvas.bind("<Double-Button-1>", lambda e: self.start_textbox_creation(e, page))
         canvas.bind("<B1-Motion>", lambda e: self.draw_selection_box(e, page))
         canvas.bind("<ButtonRelease-1>", lambda e: self.finish_textbox_creation(e, page))
-        canvas.bind("<Button-1>", lambda e: self.remove_textbox_focus(e))
-    
+        
+        # NEW: Handle single click to remove focus from images/textboxes
+        def on_canvas_click(event):
+            # Only handle clicks directly on canvas (not on images)
+            items = canvas.find_overlapping(event.x, event.y, event.x+1, event.y+1)
+            
+            # Check if click is directly on canvas (no items at that position)
+            if not items:
+                self.remove_textbox_focus(event)
+                self.remove_image_focus()
+            else:
+                # Click is on an item - let the image handle it
+                pass
+        
+        canvas.bind("<Button-1>", on_canvas_click)
+    def remove_image_focus(self, event=None):
+        """Remove focus from all images"""
+        for page in self.pages:
+            for image in page.images:
+                if hasattr(image, 'has_focus') and image.has_focus:
+                    image.unfocus()
+            
+            # Clear canvas focus reference
+            if hasattr(page.canvas, 'focused_image'):
+                page.canvas.focused_image = None
+        
+        # Also reset cursor
+        if event and hasattr(event, 'widget'):
+            if isinstance(event.widget, tk.Canvas):
+                event.widget.configure(cursor="") 
     def start_textbox_creation(self, event, page):
         """Start creating a text box on double-click"""
         print(f"Double-click detected at ({event.x}, {event.y}) on page {page.page_number}")
@@ -1513,14 +1931,14 @@ class NotebookApp:
         width = abs(end_x - start_x)
         height = abs(end_y - start_y)
 
-        if width < 100: width = 200
-        if height < 60: height = 100
+        width = max(100, width)
+        height = max(60, height)
 
         x = min(start_x, end_x)
         y = min(start_y, end_y)
 
         # Create text widget
-        self.create_text_widget(page, x, y)
+        self.create_text_widget(page, x, y, width=width, height=height)
         
         # Clear selection
         canvas = page.canvas
@@ -1534,7 +1952,7 @@ class NotebookApp:
         """Clear the selection rectangle from a canvas"""
         canvas.delete("selection")
     
-    def remove_textbox_focus(self, event):
+    def remove_textbox_focus(self, event=None):
         """Remove focus from all textboxes"""
         # Hide formatting toolbar for all textboxes
         for page in self.pages:
@@ -1543,14 +1961,20 @@ class NotebookApp:
                     textbox.formatting_frame.place_forget()
                 if hasattr(textbox, 'has_focus') and textbox.has_focus:
                     textbox.on_focus_out()
-        self.root.focus()
+        
+        # Set focus to root window to ensure all text widgets lose focus
+        self.root.focus_set()
+        
+        # Update mouse cursor
+        if event and hasattr(event, 'widget'):
+            event.widget.configure(cursor="")
     
     def create_formatting_toolbar(self, parent, text_widget):
         """Create formatting toolbar for a text widget"""
         formatting_frame = ctk.CTkFrame(
             parent,
             fg_color="#f5e8c8",
-            width=120,
+            width=140,  # Increased from 120 to fit reset button
             height=35,
             corner_radius=3,
             border_width=1,
@@ -1565,55 +1989,66 @@ class NotebookApp:
         else:
             toolbar_font = ("Arial", 24)
         
-        # Bold button
-        bold_btn = ctk.CTkButton(
+        # Font size control frame (contains display + reset button)
+        font_size_frame = ctk.CTkFrame(
             formatting_frame,
-            text="B",
-            width=30,
-            height=25,
-            fg_color="#e0d0b0",
-            hover_color="#d0c0a0",
-            text_color="#3d2c1e",
-            font=(toolbar_font[0], toolbar_font[1], "bold"),
-            corner_radius=2,
-            command=lambda: (text_widget.toggle_bold(), self.set_modified(True))
+            fg_color="transparent",
+            width=85,  # Width for both elements
+            height=25
         )
-        bold_btn.pack(side="left", padx=(5, 2), pady=5)
+        font_size_frame.pack_propagate(False)
+        font_size_frame.pack(side="left", padx=(2, 5), pady=5)
         
-        # Italic button
-        italic_btn = ctk.CTkButton(
-            formatting_frame,
-            text="I",
-            width=30,
-            height=25,
-            fg_color="#e0d0b0",
-            hover_color="#d0c0a0",
-            text_color="#3d2c1e",
-            font=(toolbar_font[0], toolbar_font[1], "italic"),
-            corner_radius=2,
-            command=lambda: (text_widget.toggle_italic(), self.set_modified(True))
-        )
-        italic_btn.pack(side="left", padx=2, pady=5)
+        # Font size display (scrollable)
+        self.font_size_var = ctk.StringVar(value="45")  # Default font size
         
-        # Font size dropdown
-        font_sizes = ["8", "10", "11", "12", "14", "16", "18", "20", "24", "32", "45"]
-        font_size_var = ctk.StringVar(value="11")
-        
-        font_size_menu = ctk.CTkOptionMenu(
-            formatting_frame,
-            values=font_sizes,
-            variable=font_size_var,
+        font_size_display = ctk.CTkLabel(
+            font_size_frame,
+            textvariable=self.font_size_var,
             width=50,
             height=25,
             fg_color="#e0d0b0",
-            button_color="#d0c0a0",
-            button_hover_color="#c0b090",
             text_color="#3d2c1e",
-            font=(toolbar_font[0], 10),
+            font=("Arial", 10),
             corner_radius=2,
-            command=lambda size: (text_widget.change_font_size(size), self.set_modified(True))
+            anchor="center"
         )
-        font_size_menu.pack(side="left", padx=(2, 5), pady=5)
+        font_size_display.pack(side="left", padx=(0, 2))
+        
+        # Reset button (↺ symbol)
+        reset_btn = ctk.CTkButton(
+            font_size_frame,
+            text="↺",  # Reset symbol
+            width=25,
+            height=25,
+            fg_color="#a08c6e",
+            hover_color="#8c704c",
+            text_color="#3d2c1e",
+            font=("Arial", 12, "bold"),
+            corner_radius=2,
+            command=lambda: self.reset_font_size(text_widget)
+        )
+        reset_btn.pack(side="left")
+        
+        # Bind mouse wheel events to the display label
+        def setup_scroll_bindings():
+            font_size_display.bind("<MouseWheel>", lambda e, tw=text_widget: self.on_font_size_scroll(e, tw))
+            font_size_display.bind("<Button-4>", lambda e, tw=text_widget: self.on_font_size_scroll(e, tw))  # Linux up
+            font_size_display.bind("<Button-5>", lambda e, tw=text_widget: self.on_font_size_scroll(e, tw))  # Linux down
+            font_size_display.configure(cursor="sb_v_double_arrow")
+        
+        def cleanup_scroll_bindings():
+            font_size_display.unbind("<MouseWheel>")
+            font_size_display.unbind("<Button-4>")
+            font_size_display.unbind("<Button-5>")
+            font_size_display.configure(cursor="")
+        
+        font_size_display.bind("<Enter>", lambda e: setup_scroll_bindings())
+        font_size_display.bind("<Leave>", lambda e: cleanup_scroll_bindings())
+        
+        # Store references
+        text_widget.font_size_display = font_size_display
+        text_widget.reset_button = reset_btn
         
         return formatting_frame
 
@@ -1793,7 +2228,21 @@ class NotebookApp:
             command=self.import_image_with_page_chooser  # Changed to new method
         )
         file_btn.pack(side="left", padx=(10, 5), pady=5)
-        
+        focus_btn = ctk.CTkButton(
+            self.top_bar,
+            text="Focus",
+            fg_color="transparent",
+            hover_color="#e0d0b0",
+            text_color="#5d4037",
+            font=topbar_font,
+            width=60,
+            height=25,
+            corner_radius=3,
+            border_width=1,
+            border_color="#d4b98c",
+            command=self.toggle_focus_mode
+        )
+        focus_btn.pack(side="left", padx=5, pady=5)       
         # Add Page button
         add_page_btn = ctk.CTkButton(
             self.top_bar,
@@ -1951,49 +2400,264 @@ class NotebookApp:
             
         # Show the label again
         self.page_name_label.pack()
+    def toggle_focus_mode(self, page_index=None):
+        """Toggle between normal view and focused single-page view"""
+        if self.focus_mode:
+            # Exit focus mode - return to normal two-page view
+            self.exit_focus_mode()
+        else:
+            # Enter focus mode - focus on specified page or current left page
+            if page_index is None:
+                # Focus on current left page by default
+                page_to_focus = self.current_left_page_index
+            else:
+                page_to_focus = page_index
+            self.enter_focus_mode(page_to_focus)
+
+    def enter_focus_mode(self, page_index):
+        """Enter single-page focus mode on a specific page"""
+        if page_index >= len(self.pages):
+            return
         
-    def update_top_bar_page_name(self):
-        """Update the page name display in top bar"""
+        self.focus_mode = True
+        self.focused_page_index = page_index
+        self.previous_left_index = self.current_left_page_index
+        self.previous_right_index = self.current_right_page_index
+        
+        focused_page = self.pages[page_index]
+        
+        # Store original placement
+        if not hasattr(focused_page, 'original_placement'):
+            focused_page.original_placement = {
+                'relx': 0 if focused_page.is_left_page else 0.5,
+                'rely': 0,
+                'relwidth': 0.5,
+                'relheight': 1.0
+            }
+        
+        # Hide all pages
+        for page in self.pages:
+            page.hide()
+        
+        # Store the original root background color
+        self.original_root_bg = self.root.cget("background")
+        
+        # Change the ROOT WINDOW background to black
+        self.root.configure(background="#000000")
+        
+        # Also change the page container background
+        self.page_container.configure(fg_color="#000000")
+        
+        # Place the focused page - centered with black borders
+        focused_page.frame.place(relx=0.25, rely=0, relwidth=0.5, relheight=1.0)
+        
+        # Make sure the page is visible
+        focused_page.frame.lift()
+        
+        # Update UI
+        self.update_top_bar_page_name()
+        self.update_sidebar_page_list()
+        
+        # KEEP page corner buttons in focus mode, but update their commands
+        self.prev_corner.command = lambda: self.previous_focus_page()
+        self.next_corner.command = lambda: self.next_focus_page()
+        
+        # Update seam visibility
+        self.update_seam_for_focus_mode()
+        
+        print(f"Entered focus mode on page {page_index + 1}")
+    def next_focus_page(self):
+        """Go to next page in focus mode"""
+        if not self.focus_mode:
+            return self.next_page()  # Fall back to normal navigation
+        
+        # Play sound
+        if self.sound_player:
+            self.sound_player.play_flip_sound()
+        
+        # Calculate next page index
+        next_index = self.focused_page_index + 1
+        
+        # Check if we need to create new pages
+        if next_index >= len(self.pages):
+            self.add_new_pages()
+        
+        # Focus on the next page
+        self.focus_on_page(next_index)
+
+    def previous_focus_page(self):
+        """Go to previous page in focus mode"""
+        if not self.focus_mode:
+            return self.previous_page()  # Fall back to normal navigation
+        
+        # Play sound
+        if self.sound_player:
+            self.sound_player.play_flip_sound()
+        
+        # Calculate previous page index
+        prev_index = self.focused_page_index - 1
+        
+        # Only navigate if there is a previous page
+        if prev_index >= 0:
+            self.focus_on_page(prev_index)
+
+    def exit_focus_mode(self):
+        """Exit focus mode and return to normal two-page view"""
+        if not self.focus_mode:
+            return
+        
+        self.focus_mode = False
+        
+        # Restore the original root background color
+        if hasattr(self, 'original_root_bg'):
+            self.root.configure(background=self.original_root_bg)
+            self.page_container.configure(fg_color=self.original_root_bg)
+        
+        # Hide all pages
+        for page in self.pages:
+            page.hide()
+        
+        # Restore the previously focused page to its original position
+        focused_page = self.pages[self.focused_page_index]
+        if hasattr(focused_page, 'original_placement'):
+            # Remove the custom placement
+            focused_page.frame.place_forget()
+            # Restore the page to normal flow
+            delattr(focused_page, 'original_placement')
+        
+        # Show the previous two-page view
+        self.current_left_page_index = self.previous_left_index
+        self.current_right_page_index = self.previous_right_index
+        
         left_page = self.get_current_left_page()
         right_page = self.get_current_right_page()
-        display_text = ""
         
-        if left_page and right_page:
-            display_text = f"{left_page.get_display_text()} | {right_page.get_display_text()}"
-        elif left_page:
-            display_text = left_page.get_display_text()
-        elif right_page:
-            display_text = right_page.get_display_text()
+        if left_page:
+            left_page.show()
+        if right_page:
+            right_page.show()
+        
+        # Update UI
+        self.update_top_bar_page_name()
+        self.update_sidebar_page_list()
+        
+        # Restore original commands to page corner buttons
+        self.prev_corner.command = self.previous_page
+        self.next_corner.command = self.next_page
+        
+        # Update seam
+        self.update_seam_for_focus_mode()
+        
+        print("Exited focus mode")
+
+    def update_seam_for_focus_mode(self):
+        """Update seam visibility based on focus mode"""
+        if self.focus_mode:
+            # Hide seam in focus mode
+            self.seam.place_forget()
+        else:
+            # Show seam in normal mode
+            self.seam.place(relx=0.5, rely=0, relheight=1.0, anchor="n") 
+    def update_top_bar_page_name(self):
+        """Update the page name display in top bar - modified for focus mode"""
+        if self.focus_mode and self.focused_page_index is not None:
+            # In focus mode, show only the focused page
+            focused_page = self.pages[self.focused_page_index]
+            display_text = f"🔍 {focused_page.get_display_text()}"
+        else:
+            # Normal two-page view
+            left_page = self.get_current_left_page()
+            right_page = self.get_current_right_page()
+            display_text = ""
             
+            if left_page and right_page:
+                display_text = f"{left_page.get_display_text()} | {right_page.get_display_text()}"
+            elif left_page:
+                display_text = left_page.get_display_text()
+            elif right_page:
+                display_text = right_page.get_display_text()
+        
         self.page_name_label.configure(text=display_text)
     
     def update_sidebar_page_list(self):
-        """Update the page list in sidebar"""
+        """Update the page list in sidebar - modified for focus mode"""
         # Clear current list
         for widget in self.page_list.winfo_children():
             widget.destroy()
         
-        # Set font for page buttons - BIGGER for 1920x1080
+        # Set font for page buttons
         if HAS_CUSTOM_FONT:
-            page_btn_font = ("Adeliz", 20)  # Increased from 11 to 20
+            page_btn_font = ("Adeliz", 20)
         else:
             page_btn_font = ("Segoe UI", 20)
         
         # Add page buttons with names
         for i, page in enumerate(self.pages):
+            # Create button text - add indicator if this page is focused
+            button_text = page.get_display_text()
+            if self.focus_mode and i == self.focused_page_index:
+                button_text = f"🔍 {button_text}"
+            
+            # Button command depends on focus mode
+            if self.focus_mode:
+                # In focus mode, clicking a page navigates within focus mode
+                command = lambda idx=i: self.focus_on_page(idx)
+            else:
+                # In normal mode, clicking a page goes to that page in normal view
+                command = lambda idx=i: self.go_to_page(idx)
+            
             page_btn = ctk.CTkButton(
                 self.page_list,
-                text=page.get_display_text(),
+                text=button_text,
                 fg_color="#e0d0b0",
                 hover_color="#d0c0a0",
                 text_color="#3d2c1e",
                 font=page_btn_font,
-                height=50,  # Increased from 30 to 50
-                corner_radius=5,  # Added corner radius
-                command=lambda idx=i: self.go_to_page(idx)
+                height=50,
+                corner_radius=5,
+                command=command
             )
-            page_btn.pack(fill="x", pady=8, padx=5)  # More padding
-
+            
+            # If this is the currently focused page, highlight it
+            if self.focus_mode and i == self.focused_page_index:
+                page_btn.configure(
+                    fg_color="#5d4037",
+                    text_color="#f5e8c8",
+                    hover_color="#4d3027"
+                )
+            
+            page_btn.pack(fill="x", pady=8, padx=5)
+    def focus_on_page(self, page_index):
+        """Focus on a specific page (within focus mode)"""
+        if page_index >= len(self.pages):
+            return
+        
+        # If not in focus mode, enter it
+        if not self.focus_mode:
+            self.enter_focus_mode(page_index)
+            return
+        
+        # Play flip sound
+        if self.sound_player:
+            self.sound_player.play_flip_sound()
+        
+        # Already in focus mode, just switch pages
+        self.focused_page_index = page_index
+        
+        # Hide all pages
+        for page in self.pages:
+            page.hide()
+        
+        # Show the new focused page
+        focused_page = self.pages[page_index]
+        focused_page.frame.place(relx=0.25, rely=0, relwidth=0.5, relheight=1.0)
+        focused_page.frame.lift()
+        
+        # Update UI
+        self.update_top_bar_page_name()
+        self.update_sidebar_page_list()
+        
+        print(f"Switched focus to page {page_index + 1}")
     def add_new_pages_and_go(self):
         """Add new pages and navigate to them"""
         self.add_new_pages()
@@ -2025,7 +2689,7 @@ class NotebookApp:
         # Create a custom dialog with Left/Right buttons
         dialog = ctk.CTkToplevel(self.root)
         dialog.title("Add Image")
-        dialog.geometry("400x200")
+        dialog.geometry("400x250")  # Made taller for info
         dialog.resizable(False, False)
         dialog.transient(self.root)
         dialog.grab_set()  # Make dialog modal
@@ -2040,9 +2704,37 @@ class NotebookApp:
         ctk.CTkLabel(
             dialog,
             text="Add image to which page?",
-            font=("Arial", 16) if not HAS_CUSTOM_FONT else ("Adeliz", 16),
+            font=("Arial", 26) if not HAS_CUSTOM_FONT else ("Adeliz", 26),
             text_color="#3d4037"
-        ).pack(pady=(20, 10))
+        ).pack(pady=(20, 5))
+        
+        # Show image info
+        try:
+            with Image.open(file_path) as img:
+                orig_width, orig_height = img.size
+                
+                # Calculate display size (40% of page)
+                canvas_width = left_page.canvas.winfo_width() if left_page else 800
+                display_width = int(canvas_width * 0.4)
+                aspect_ratio = orig_height / orig_width
+                display_height = int(display_width * aspect_ratio)
+                
+                info_text = (
+                    f"Image: {orig_width}×{orig_height} pixels\n"
+                    f"Will display at: {display_width}×{display_height} pixels\n"
+                    f"(40% of page width, drag corners to resize)"
+                )
+        except:
+            info_text = "Cannot read image dimensions"
+        
+        info_label = ctk.CTkLabel(
+            dialog,
+            text=info_text,
+            font=("Arial", 12) if not HAS_CUSTOM_FONT else ("Adeliz", 12),
+            text_color="#5d4037",
+            justify="left"
+        )
+        info_label.pack(pady=10)
         
         # Show current page names
         pages_info = ctk.CTkLabel(
@@ -2077,9 +2769,10 @@ class NotebookApp:
             def add_to_left():
                 # Place image in center of left page
                 canvas = left_page.canvas
-                x = canvas.winfo_width() // 2 - 100
+                x = canvas.winfo_width() // 2 - 100  # Will be centered by ImageWidget
                 y = canvas.winfo_height() // 2 - 100
                 
+                # ImageWidget will automatically scale to 40%
                 left_page.add_image(x, y, file_path)
                 self.set_modified(True)
                 dialog.destroy()
@@ -2192,40 +2885,83 @@ class NotebookApp:
         # Update page list
         self.update_sidebar_page_list()
     
+    # Add keyboard shortcuts for focus mode
+    def setup_keyboard_shortcuts(self):
+        """Setup keyboard shortcuts - add to __init__ or create a new method"""
+        # Escape key to exit focus mode
+        self.root.bind("<Escape>", lambda e: self.exit_focus_mode())
+        
+        # Arrow keys to navigate pages in BOTH modes
+        def handle_left_key(e):
+            if self.focus_mode:
+                self.previous_focus_page()
+            else:
+                self.previous_page()
+        
+        def handle_right_key(e):
+            if self.focus_mode:
+                self.next_focus_page()
+            else:
+                self.next_page()
+        
+        self.root.bind("<Left>", handle_left_key)
+        self.root.bind("<Right>", handle_right_key)
 
+    def navigate_focus_left(self):
+        """Navigate to previous page in focus mode"""
+        if not self.focus_mode:
+            return
+        
+        new_index = self.focused_page_index - 1
+        if new_index >= 0:
+            self.focus_on_page(new_index)
+
+    def navigate_focus_right(self):
+        """Navigate to next page in focus mode"""
+        if not self.focus_mode:
+            return
+        
+        new_index = self.focused_page_index + 1
+        if new_index < len(self.pages):
+            self.focus_on_page(new_index)
     def go_to_page(self, page_index):
-        """Go to a specific page"""
-        # Calculate which pages to show
-        if page_index % 2 == 0:  # Even index = left page
-            self.current_left_page_index = page_index
-            self.current_right_page_index = page_index + 1
-        else:  # Odd index = right page
-            self.current_left_page_index = page_index - 1
-            self.current_right_page_index = page_index
-        
-        # Ensure indices are valid
-        if self.current_right_page_index >= len(self.pages):
-            self.add_new_pages()
-        
-        # Hide all pages
-        for page in self.pages:
-            page.hide()
-        
-        # Show selected pages
-        left_page = self.get_current_left_page()
-        right_page = self.get_current_right_page()
-        if left_page: left_page.show()
-        if right_page: right_page.show()
-        
-        # Update navigation
-        self.update_navigation()
-        
-        # Update top bar name display
-        self.update_top_bar_page_name()
-        
-        # Close sidebar
-        self.close_sidebar()
-    
+        """Go to a specific page - modified to handle focus mode"""
+        if self.focus_mode:
+            # In focus mode, just focus on the selected page
+            self.focus_on_page(page_index)
+        else:
+            # Original logic for normal mode
+            # Calculate which pages to show
+            if page_index % 2 == 0:  # Even index = left page
+                self.current_left_page_index = page_index
+                self.current_right_page_index = page_index + 1
+            else:  # Odd index = right page
+                self.current_left_page_index = page_index - 1
+                self.current_right_page_index = page_index
+            
+            # Ensure indices are valid
+            if self.current_right_page_index >= len(self.pages):
+                self.add_new_pages()
+            
+            # Hide all pages
+            for page in self.pages:
+                page.hide()
+            
+            # Show selected pages
+            left_page = self.get_current_left_page()
+            right_page = self.get_current_right_page()
+            if left_page: left_page.show()
+            if right_page: right_page.show()
+            
+            # Update navigation
+            self.update_navigation()
+            
+            # Update top bar name display
+            self.update_top_bar_page_name()
+            
+            # Close sidebar
+            self.close_sidebar()
+
     def setup_sidebar_close_binding(self):
         # Bind left-click anywhere on the root
         self.root.bind("<Button-1>", self.check_click_outside_sidebar)
@@ -2288,20 +3024,94 @@ class NotebookApp:
 
     def check_mouse_position(self, event):
         # Don't show top bar if sidebar is open
-        if self.sidebar_visible and event.x < 250:  # Updated from 200 to 250
+        if self.sidebar_visible and event.x < 250:
             if not self.top_bar_visible:
                 self.show_top_bar()
             return
-
-        # Check if cursor is over any formatting toolbar
+        
+        # Get the widget under the cursor
+        widget = event.widget.winfo_containing(event.x_root, event.y_root)
+        
+        # List of widgets that should NOT trigger top bar
+        no_top_bar_widgets = [
+            self.prev_corner.canvas if hasattr(self.prev_corner, 'canvas') else None,
+            self.next_corner.canvas if hasattr(self.next_corner, 'canvas') else None,
+            # Add other widgets that should block top bar
+        ]
+        
+        # Check all textbox components
         for page in self.pages:
             for textbox in page.textboxes:
-                if hasattr(textbox, 'formatting_frame') and textbox.formatting_frame.winfo_ismapped():
-                    if self.is_mouse_over_widget(textbox.formatting_frame, event):
+                no_top_bar_widgets.extend([
+                    textbox.frame,
+                    textbox.text_widget,
+                    textbox.handles_frame if hasattr(textbox, 'handles_frame') else None,
+                    textbox.move_handle if hasattr(textbox, 'move_handle') else None,
+                    textbox.resize_handle if hasattr(textbox, 'resize_handle') else None,
+                    textbox.formatting_frame if hasattr(textbox, 'formatting_frame') else None
+                ])
+            
+            # Check all image canvases
+            for image in page.images:
+                # Add the canvas that contains the image
+                if hasattr(image, 'canvas') and image.canvas:
+                    no_top_bar_widgets.append(image.canvas)
+        
+        # Special case: check if cursor is over formatting toolbar buttons
+        # These are child widgets inside the formatting_frame
+        if widget and hasattr(widget, 'master'):
+            # Check if widget is inside a formatting toolbar
+            parent = widget.master
+            while parent:
+                # Check all pages for formatting frames
+                for page in self.pages:
+                    for textbox in page.textboxes:
+                        if hasattr(textbox, 'formatting_frame') and parent == textbox.formatting_frame:
+                            # Widget is inside a formatting toolbar
+                            if self.top_bar_visible and event.y > 50:
+                                self.hide_top_bar()
+                            return
+                parent = parent.master if hasattr(parent, 'master') else None
+        
+        # Special case: check if cursor is over any canvas items (images, borders, handles)
+        if isinstance(widget, tk.Canvas):
+            # Get items at cursor position
+            items = widget.find_overlapping(event.x, event.y, event.x+1, event.y+1)
+            if items:
+                # Check if any of these items belong to our images
+                for page in self.pages:
+                    for image in page.images:
+                        if hasattr(image, 'image_id') and image.image_id in items:
+                            # Cursor is over an image
+                            if self.top_bar_visible and event.y > 50:
+                                self.hide_top_bar()
+                            return
+        
+        # Check if cursor is over any "no-top-bar" widget
+        if widget in no_top_bar_widgets:
+            # Don't show top bar when over interactive elements
+            if self.top_bar_visible and event.y > 50:
+                self.hide_top_bar()
+            return
+        
+        # Also check if cursor position is inside any textbox frame
+        for page in self.pages:
+            for textbox in page.textboxes:
+                if hasattr(textbox, 'frame') and textbox.frame.winfo_exists():
+                    frame_x = textbox.frame.winfo_rootx() - self.root.winfo_rootx()
+                    frame_y = textbox.frame.winfo_rooty() - self.root.winfo_rooty()
+                    frame_width = textbox.frame.winfo_width()
+                    frame_height = textbox.frame.winfo_height()
+                    
+                    if (frame_x <= event.x <= frame_x + frame_width and 
+                        frame_y <= event.y <= frame_y + frame_height):
+                        # Cursor is inside textbox frame
+                        if self.top_bar_visible and event.y > 50:
+                            self.hide_top_bar()
                         return
-
-        # Original behavior
-        if event.y < 30:
+        
+        # Original top bar behavior
+        if event.y < 10:  # Very top edge only
             if not self.top_bar_visible:
                 self.show_top_bar()
         else:
@@ -2532,37 +3342,99 @@ class NotebookApp:
         if not os.path.exists(images_dir):
             os.makedirs(images_dir)
         
+        # Track used images to avoid duplicates
+        image_map = {}  # original_path -> (relative_path, absolute_path)
+        
         # Process all images in notebook
         for page_data in notebook_data["pages"]:
             for image_data in page_data["images"]:
                 original_path = image_data["image_path"]
                 
-                # Skip if already in images directory
-                if os.path.dirname(original_path) == images_dir:
+                # Skip if already processed
+                if original_path in image_map:
+                    rel_path, abs_path = image_map[original_path]
+                    image_data["image_path"] = abs_path  # Use existing absolute path
+                    image_data["relative_path"] = rel_path  # Store relative path too
                     continue
                 
-                # Generate new filename
-                filename = os.path.basename(original_path)
-                new_path = os.path.join(images_dir, filename)
-                
-                # Handle duplicate filenames
-                counter = 1
-                base_name, ext = os.path.splitext(filename)
-                while os.path.exists(new_path):
-                    new_filename = f"{base_name}_{counter}{ext}"
-                    new_path = os.path.join(images_dir, new_filename)
-                    counter += 1
-                
-                # Copy image to notebook directory
+                # Generate new filename with hash
+                import hashlib
                 try:
-                    shutil.copy2(original_path, new_path)
-                    image_data["image_path"] = new_path
-                    print(f"Copied image: {original_path} -> {new_path}")
-                except Exception as e:
-                    print(f"Warning: Could not copy image {original_path}: {e}")
-                    # Keep original path as fallback
+                    with open(original_path, 'rb') as f:
+                        file_hash = hashlib.md5(f.read()).hexdigest()[:8]
+                except:
+                    # Fallback to random name if can't read
+                    import random
+                    file_hash = f"{random.randint(1000, 9999)}"
+                
+                filename = os.path.basename(original_path)
+                name, ext = os.path.splitext(filename)
+                new_filename = f"{file_hash}{ext}"
+                new_abs_path = os.path.join(images_dir, new_filename)
+                rel_path = os.path.join("images", new_filename)
+                
+                # Copy image if needed
+                if not os.path.exists(new_abs_path):
+                    try:
+                        shutil.copy2(original_path, new_abs_path)
+                        print(f"Copied image: {original_path} -> {new_abs_path}")
+                    except Exception as e:
+                        print(f"Warning: Could not copy image {original_path}: {e}")
+                        # Keep original path
+                        new_abs_path = original_path
+                        rel_path = original_path
+                
+                # Store both paths
+                image_data["image_path"] = new_abs_path  # Absolute path for current session
+                image_data["relative_path"] = rel_path   # Relative path for saving
+                
+                image_map[original_path] = (rel_path, new_abs_path)
+        
+        # Cleanup unused images in images directory
+        self.cleanup_unused_images(notebook_data, save_path)
         
         return notebook_data
+
+    def cleanup_unused_images(self, notebook_data, save_path):
+        """Remove images not referenced in the notebook"""
+        save_dir = os.path.dirname(save_path)
+        images_dir = os.path.join(save_dir, "images")
+        
+        if not os.path.exists(images_dir):
+            return
+        
+        # Get all referenced image filenames
+        referenced = set()
+        for page_data in notebook_data["pages"]:
+            for image_data in page_data["images"]:
+                if "image_path" in image_data:
+                    filename = os.path.basename(image_data["image_path"])
+                    referenced.add(filename)
+        
+        # Remove unreferenced files
+        for filename in os.listdir(images_dir):
+            if filename not in referenced:
+                try:
+                    os.remove(os.path.join(images_dir, filename))
+                    print(f"Removed unused image: {filename}")
+                except Exception as e:
+                    print(f"Failed to remove {filename}: {e}")
+
+    def restore_image_paths(self, notebook_data, load_path):
+        """Convert relative paths back to absolute when loading"""
+        load_dir = os.path.dirname(load_path)
+        
+        for page_data in notebook_data["pages"]:
+            for image_data in page_data["images"]:
+                if "image_path" in image_data:
+                    rel_path = image_data["image_path"]
+                    # Check if it's a relative path
+                    if not os.path.isabs(rel_path):
+                        abs_path = os.path.join(load_dir, rel_path)
+                        if os.path.exists(abs_path):
+                            image_data["image_path"] = abs_path
+                        else:
+                            print(f"Warning: Image not found: {abs_path}")
     
     def clear_all_pages(self):
         """Clear all pages and widgets"""
